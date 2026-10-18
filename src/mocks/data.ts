@@ -22,10 +22,10 @@ export const rules:RiskRule[]=[
 {id:"R-04",name:"Multiple Risk Signals",description:"Escalate when multiple signals are present",feature:"risk_signal_count",operator:">=",threshold:3,severity:"Medium",impact:18,enabled:false,modified:"Oct 12"}
 ];
 export const audit:AuditEvent[]=[
-{id:"AUD-91A2",timestamp:"2026-10-15 11:18:42",actor:"risk-engine",role:"System",action:"Transaction scored",resourceType:"Transaction",resourceId:"TXN-20481",result:"Review",details:"Risk score 94; decision FLAG; model fraud-v1.8.2."},
+{id:"AUD-91A2",timestamp:"2026-10-15 11:18:42",actor:"risk-engine",role:"System",action:"Transaction scored",resourceType:"Transaction",resourceId:"TXN-20481",result:"Review",details:"Risk score 94; decision FLAG; demo seed record."},
 {id:"AUD-91A1",timestamp:"2026-10-15 11:18:10",actor:"A. Sharma",role:"Analyst",action:"Fraud case opened",resourceType:"Case",resourceId:"CASE-0081",result:"Success",details:"Case created for high-risk transaction."},
 {id:"AUD-91A0",timestamp:"2026-10-15 10:42:00",actor:"A. Sharma",role:"Analyst",action:"Risk rule updated",resourceType:"Risk rule",resourceId:"R-01",result:"Success",details:"High Transaction Amount threshold reviewed."},
-{id:"AUD-919F",timestamp:"2026-10-15 10:21:33",actor:"model-service",role:"System",action:"Model evaluated",resourceType:"Model",resourceId:"fraud-v1.8.2",result:"Success",details:"Illustrative evaluation event for demo mode."},
+{id:"AUD-919F",timestamp:"2026-10-15 10:21:33",actor:"model-service",role:"System",action:"Model evaluated",resourceType:"Model",resourceId:"fraud-v2.0.0-logistic",result:"Success",details:"Held-out synthetic test split evaluation completed."},
 {id:"AUD-919E",timestamp:"2026-10-15 09:55:12",actor:"R. Iyer",role:"Analyst",action:"Analyst note added",resourceType:"Case",resourceId:"CASE-0082",result:"Success",details:"Added investigation note."}
 ];
 export const activity = [

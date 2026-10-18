@@ -24,7 +24,7 @@ const mockNotifications: NotificationItem[] = [
   {
     id: "notif-2",
     title: "Model Disagreement Alert",
-    message: "High score divergence detected between Random Forest v1.8.2 and LightGBM on TXN-20485.",
+    message: "Score divergence detected between ML model (v2.0.0) and rule engine on TXN-20485.",
     severity: "medium",
     timestamp: "35 mins ago",
     read: false,

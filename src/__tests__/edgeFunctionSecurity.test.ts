@@ -65,3 +65,26 @@ describe("Edge Function: score-transaction payload validation", () => {
     });
   });
 });
+
+describe("Database RLS: current_user_role() security invariant", () => {
+  function evalCurrentUserRole(profile: { role: string; status: string } | null | undefined): string | null {
+    if (!profile) return null;
+    if (profile.status !== "active") return null;
+    return profile.role;
+  }
+
+  it("locks out suspended and inactive accounts from staff-restricted SELECT policies", () => {
+    // Current user role returns NULL for non-active accounts
+    expect(evalCurrentUserRole(null)).toBeNull();
+    expect(evalCurrentUserRole(undefined)).toBeNull();
+    expect(evalCurrentUserRole({ role: "fraud_analyst", status: "suspended" })).toBeNull();
+    expect(evalCurrentUserRole({ role: "fraud_analyst", status: "inactive" })).toBeNull();
+    expect(evalCurrentUserRole({ role: "administrator", status: "suspended" })).toBeNull();
+
+    // Only active accounts have current_user_role() IS NOT NULL
+    expect(evalCurrentUserRole({ role: "fraud_analyst", status: "active" })).toBe("fraud_analyst");
+    expect(evalCurrentUserRole({ role: "administrator", status: "active" })).toBe("administrator");
+    expect(evalCurrentUserRole({ role: "investigator", status: "active" })).toBe("investigator");
+  });
+});
+

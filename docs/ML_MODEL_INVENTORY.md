@@ -12,7 +12,7 @@
 
 | Identifier | Model Type | Implementation Location | Provenance / Training Data | Status | Latency | Primary Use Case |
 |---|---|---|---|---|---|---|
-| `fraud-v2.0.0-logistic` | L2-Regularized Logistic Regression | `supabase/model_service.py`, `ml/train.py` | Stratified Synthetic Financial Transactions (N=5,000, 6.0% fraud prevalence) | **PASS** | < 2ms | Primary online transaction scoring & SHAP-like attribution |
+| `fraud-v2.0.0-logistic` | L2-Regularized Logistic Regression | `supabase/model_service.py`, `ml/train.py` | Stratified Synthetic Financial Transactions (N=8,000, 3.93% fraud prevalence) | **PASS** | < 2ms | Primary online transaction scoring & linear feature attribution |
 | `TrainedMLScorer` | Client-Side TypeScript Mirror | `src/services/modelScorers.ts` | Exact canonical weights & threshold of `v2.0.0` | **PASS** | < 0.2ms | Zero-dependency client fallback during network disconnection |
 | `RuleBasedScorer` | Deterministic Heuristic Engine | `src/services/scoringEngine.ts` | Configurable operational thresholds (`public.risk_rules`) | **PASS** | < 0.1ms | Baseline scoring and Disagreement Radar comparator |
 

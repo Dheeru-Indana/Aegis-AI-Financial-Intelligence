@@ -33,10 +33,10 @@ aegisai-frontend/
 │   │   ├── AdminWorkspace.tsx       # Superuser console (User management, audit logs, drift)
 │   │   ├── WorkspaceSelector.tsx    # Left-sidebar switcher between Risk Operations & Admin
 │   │   ├── ProfileDropdown.tsx      # Top-right avatar menu (Role badge, sign out)
-│   │   ├── Overview.tsx             # Executive KPI dashboard
-│   │   ├── Transactions.tsx         # Live transaction stream & triage
-│   │   ├── Cases.tsx                # Fraud case management
-│   │   ├── ExplainableAI.tsx        # SHAP/feature contribution visualizations
+│   │   ├── Overview.tsx             # Executive KPI dashboard (App.tsx)
+│   │   ├── Transactions.tsx         # Live transaction stream & triage (App.tsx)
+│   │   ├── Cases.tsx                # Fraud case management (App.tsx)
+│   │   ├── Explain                  # Linear log-odds contribution visualizations (App.tsx)
 │   │   ├── FraudRingExplorer.tsx    # Graph intelligence for mule accounts
 │   │   ├── AnalystCopilot.tsx       # AI triage assistant
 │   │   ├── Analytics.tsx            # Risk velocity & volume distributions

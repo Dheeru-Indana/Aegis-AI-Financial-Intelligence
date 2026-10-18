@@ -75,7 +75,7 @@ npm run dev
 2. Notice the instant toast notification:
    `Test event TXN-XXXXX (provenance: test) scored via live_ml (Score: XX)`
 3. The event will appear with the explicit provenance tag `test`, preventing contamination of production metrics.
-4. Click on the transaction row to inspect the linear feature attribution breakdown (SHAP-like attribution) in the side drawer.
+4. Click on the transaction row to inspect the linear feature attribution breakdown (w * x log-odds contribution) in the side drawer.
 
 ---
 

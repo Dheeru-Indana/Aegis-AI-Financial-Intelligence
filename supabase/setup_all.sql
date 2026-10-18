@@ -240,7 +240,7 @@ CREATE INDEX IF NOT EXISTS idx_transactions_decision ON public.transactions(deci
 CREATE INDEX IF NOT EXISTS idx_transactions_customer_ref ON public.transactions(customer_reference);
 
 -- ------------------------------------------------------------------------------
--- 5. TRANSACTION FEATURES (Model Input Provenance & PCA Vectors)
+-- 5. TRANSACTION FEATURES (Model Input Provenance & Normalized Feature Vectors)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.transaction_features (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -364,13 +364,13 @@ CREATE TABLE IF NOT EXISTS public.model_evaluations (
 CREATE INDEX IF NOT EXISTS idx_model_evals_model_id ON public.model_evaluations(model_id);
 
 -- ------------------------------------------------------------------------------
--- 11. TRANSACTION EXPLANATIONS (SHAP & Decision Tracing)
+-- 11. TRANSACTION EXPLANATIONS (Feature Attributions & Decision Tracing)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.transaction_explanations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   transaction_id TEXT NOT NULL REFERENCES public.transactions(id) ON DELETE CASCADE,
   model_version TEXT NOT NULL,
-  explanation_method TEXT NOT NULL DEFAULT 'SHAP-inspired',
+  explanation_method TEXT NOT NULL DEFAULT 'log-odds-attribution',
   feature_attributions JSONB NOT NULL DEFAULT '[]'::jsonb,
   summary_text TEXT NOT NULL,
   decision_trace JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -528,7 +528,7 @@ CREATE POLICY "Transactions updatable by analysts and admins"
 -- ------------------------------------------------------------------------------
 CREATE POLICY "Features viewable by authenticated users"
   ON public.transaction_features FOR SELECT TO authenticated
-  USING (true);
+  USING (public.current_user_role() IS NOT NULL);
 
 CREATE POLICY "Features insertable by analysts and admins"
   ON public.transaction_features FOR INSERT TO authenticated
@@ -536,7 +536,7 @@ CREATE POLICY "Features insertable by analysts and admins"
 
 CREATE POLICY "Explanations viewable by authenticated users"
   ON public.transaction_explanations FOR SELECT TO authenticated
-  USING (true);
+  USING (public.current_user_role() IS NOT NULL);
 
 CREATE POLICY "Explanations insertable by analysts and admins"
   ON public.transaction_explanations FOR INSERT TO authenticated
@@ -547,7 +547,7 @@ CREATE POLICY "Explanations insertable by analysts and admins"
 -- ------------------------------------------------------------------------------
 CREATE POLICY "Cases readable by authenticated users"
   ON public.fraud_cases FOR SELECT TO authenticated
-  USING (true);
+  USING (public.current_user_role() IS NOT NULL);
 
 CREATE POLICY "Cases insertable by investigators, analysts, admins"
   ON public.fraud_cases FOR INSERT TO authenticated
@@ -559,7 +559,7 @@ CREATE POLICY "Cases updatable by investigators, analysts, admins"
 
 CREATE POLICY "Activity readable by authenticated users"
   ON public.case_activity FOR SELECT TO authenticated
-  USING (true);
+  USING (public.current_user_role() IS NOT NULL);
 
 CREATE POLICY "Activity insertable by investigators, analysts, admins"
   ON public.case_activity FOR INSERT TO authenticated
@@ -570,7 +570,7 @@ CREATE POLICY "Activity insertable by investigators, analysts, admins"
 -- ------------------------------------------------------------------------------
 CREATE POLICY "Risk rules readable by authenticated users"
   ON public.risk_rules FOR SELECT TO authenticated
-  USING (true);
+  USING (public.current_user_role() IS NOT NULL);
 
 CREATE POLICY "Risk rules editable by admins and analysts"
   ON public.risk_rules FOR ALL TO authenticated
@@ -581,7 +581,7 @@ CREATE POLICY "Risk rules editable by admins and analysts"
 -- ------------------------------------------------------------------------------
 CREATE POLICY "Models readable by authenticated users"
   ON public.model_registry FOR SELECT TO authenticated
-  USING (true);
+  USING (public.current_user_role() IS NOT NULL);
 
 CREATE POLICY "Models manageable by admins"
   ON public.model_registry FOR ALL TO authenticated
@@ -589,7 +589,7 @@ CREATE POLICY "Models manageable by admins"
 
 CREATE POLICY "Evaluations readable by authenticated users"
   ON public.model_evaluations FOR SELECT TO authenticated
-  USING (true);
+  USING (public.current_user_role() IS NOT NULL);
 
 CREATE POLICY "Evaluations manageable by admins"
   ON public.model_evaluations FOR ALL TO authenticated
@@ -600,7 +600,7 @@ CREATE POLICY "Evaluations manageable by admins"
 -- ------------------------------------------------------------------------------
 CREATE POLICY "Ingestion jobs readable by authenticated users"
   ON public.ingestion_jobs FOR SELECT TO authenticated
-  USING (true);
+  USING (public.current_user_role() IS NOT NULL);
 
 CREATE POLICY "Ingestion jobs insertable by analysts and admins"
   ON public.ingestion_jobs FOR INSERT TO authenticated
@@ -641,7 +641,7 @@ CREATE POLICY "System and analysts can create notifications"
 -- ------------------------------------------------------------------------------
 CREATE POLICY "Feedback viewable by authenticated users"
   ON public.user_feedback FOR SELECT TO authenticated
-  USING (true);
+  USING (public.current_user_role() IS NOT NULL);
 
 CREATE POLICY "Feedback manageable by analysts, investigators, and admins"
   ON public.user_feedback FOR ALL TO authenticated
@@ -806,7 +806,7 @@ INSERT INTO public.notification_events (
   recipient_id, recipient_role, title, message, severity, link_ref, read, created_at
 ) VALUES
   (NULL, 'fraud_analyst', 'High-Risk Spike Detected', 'Transaction TXN-20481 flagged with risk score 94/100 (Velocity Anomaly).', 'high', 'TXN-20481', false, now() - interval '10 minutes'),
-  (NULL, 'fraud_analyst', 'Model Disagreement Alert', 'High score divergence detected between Random Forest v1.8.2 and LightGBM on TXN-20485.', 'medium', 'TXN-20485', false, now() - interval '35 minutes'),
+  (NULL, 'fraud_analyst', 'Model Disagreement Alert', 'Score divergence detected between fraud-v2.0.0-logistic and rule engine on TXN-20485.', 'medium', 'TXN-20485', false, now() - interval '35 minutes'),
   (NULL, 'administrator', 'Population Drift Warning', 'Aggregate PSI reached 0.28 on Amount & Velocity features exceeding tolerance.', 'high', NULL, false, now() - interval '2 hours'),
   (NULL, 'investigator', 'Case Assignment', 'Fraud Case CASE-0084 assigned for investigation.', 'info', 'CASE-0084', true, now() - interval '4 hours')
 ON CONFLICT DO NOTHING;

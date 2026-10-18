@@ -21,16 +21,16 @@ const mockFeedbackHistory: FeedbackItem[] = [
 
 export const HumanFeedbackLoop: React.FC = () => {
   const [feedbackList, setFeedbackList] = useState<FeedbackItem[]>(mockFeedbackHistory);
-  const [datasetVersion, setDatasetVersion] = useState("ULB-2026-Q4-CANDIDATE");
+  const [datasetVersion, setDatasetVersion] = useState("SYNTHETIC-2026-CANDIDATE");
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
   const triggerDatasetBuild = () => {
-    setSyncStatus("Packaging 14 verified analyst dispositions into training split...");
+    setSyncStatus("Simulating packaging of verified analyst dispositions into training split...");
     setTimeout(() => {
       setFeedbackList((prev) =>
         prev.map((item) => ({ ...item, status: "Embedded in Dataset v1.9" }))
       );
-      setSyncStatus("Dataset version ULB-2026-Q4-CANDIDATE built and signed with SHA-256.");
+      setSyncStatus("Demo simulation: dispositions queued for candidate export.");
     }, 1200);
   };
 

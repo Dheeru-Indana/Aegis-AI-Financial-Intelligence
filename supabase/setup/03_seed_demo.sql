@@ -177,7 +177,7 @@ INSERT INTO public.notification_events (
   recipient_id, recipient_role, title, message, severity, link_ref, read, created_at
 ) VALUES
   (NULL, 'fraud_analyst', 'High-Risk Spike Detected', 'Transaction TXN-20481 flagged with risk score 94/100 (Velocity Anomaly).', 'high', 'TXN-20481', false, now() - interval '10 minutes'),
-  (NULL, 'fraud_analyst', 'Model Disagreement Alert', 'High score divergence detected between Random Forest v1.8.2 and LightGBM on TXN-20485.', 'medium', 'TXN-20485', false, now() - interval '35 minutes'),
+  (NULL, 'fraud_analyst', 'Model Disagreement Alert', 'Score divergence detected between fraud-v2.0.0-logistic and rule engine on TXN-20485.', 'medium', 'TXN-20485', false, now() - interval '35 minutes'),
   (NULL, 'administrator', 'Population Drift Warning', 'Aggregate PSI reached 0.28 on Amount & Velocity features exceeding tolerance.', 'high', NULL, false, now() - interval '2 hours'),
   (NULL, 'investigator', 'Case Assignment', 'Fraud Case CASE-0084 assigned for investigation.', 'info', 'CASE-0084', true, now() - interval '4 hours')
 ON CONFLICT DO NOTHING;

@@ -62,9 +62,9 @@ export const SystemGuidePage: React.FC = () => {
       id: "F4",
       name: "Evidence-Based Analyst Copilot",
       route: "/copilot",
-      desc: "Investigation assistant answering questions grounded in transactions, PCA features, and timeline notes.",
+      desc: "Scripted triage assistant demonstrating evidence extraction across demo audit traces, model coefficients, and rules.",
       dataNeeded: "Transaction attributions & case records.",
-      status: "Functional (Deterministic evidence extraction)",
+      status: "Functional (Scripted pattern matching)",
     },
     {
       id: "F5",
@@ -78,7 +78,7 @@ export const SystemGuidePage: React.FC = () => {
       id: "F6",
       name: "Model Disagreement Radar",
       route: "/disagreements",
-      desc: "Multi-scorer consensus triage comparing Random Forest v1.8.2, LightGBM v2.0-rc, and business rules.",
+      desc: "Multi-scorer consensus triage comparing fraud-v2.0.0-logistic and business rules.",
       dataNeeded: "Multi-scorer predictions per transaction.",
       status: "Functional (Consensus divergence queue)",
     },
@@ -202,7 +202,7 @@ export const SystemGuidePage: React.FC = () => {
               </div>
               <div className="kpi-value">Ready</div>
               <div className="kpi-foot">
-                <span>v1.8.2 Logistic Scorer</span>
+                <span>fraud-v2.0.0-logistic</span>
               </div>
             </section>
 

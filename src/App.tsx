@@ -446,7 +446,7 @@ function App() {
     setSelected(null);
     try {
       await createCaseRemote(c);
-      await recordAuditRemote({
+      const auditEvt: AuditEvent = {
         id: `AUD-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
         timestamp: new Date().toISOString(),
         actor: profile?.display_name || "Analyst",
@@ -456,7 +456,9 @@ function App() {
         resourceId: c.id,
         result: "Success",
         details: `Case created for transaction ${t.id}`,
-      });
+      };
+      await recordAuditRemote(auditEvt);
+      setAuditLogs((prev) => [auditEvt, ...prev]);
       toast(`${c.id} created successfully`);
     } catch (err) {
       setCases(previousCases);
@@ -619,7 +621,7 @@ function App() {
           </div>
           <div className="mini-status">
             <span>ML model</span>
-            <Badge tone="green">Ready (v1.8.2)</Badge>
+            <Badge tone="green">Ready (fraud-v2.0.0-logistic)</Badge>
           </div>
           <div className="mini-status">
             <span>Event stream</span>
@@ -922,6 +924,8 @@ function App() {
                 path="/disagreements"
                 element={
                   <DisagreementRadar
+                    transactions={txns}
+                    rules={rules}
                     onTriageCase={(txId) => {
                       const t = txns.find((x) => x.id === txId) || txns[0];
                       if (t) createCase(t);
@@ -1094,12 +1098,25 @@ function App() {
                 ];
                 try {
                   await updateCase(caseSelected.id, { notes: updatedNotes });
+                  const auditEvt: AuditEvent = {
+                    id: `AUD-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+                    timestamp: new Date().toISOString(),
+                    actor: profile?.display_name || "Analyst",
+                    role: profile?.role || "fraud_analyst",
+                    action: "Case note recorded",
+                    resourceType: "Case",
+                    resourceId: caseSelected.id,
+                    result: "Success",
+                    details: `Investigation note added to case ${caseSelected.id}: "${note.slice(0, 40)}${note.length > 40 ? "..." : ""}"`,
+                  };
+                  await recordAuditRemote(auditEvt);
+                  setAuditLogs((prev) => [auditEvt, ...prev]);
                   setCases((cs) =>
                     cs.map((c) => (c.id === caseSelected.id ? { ...c, notes: updatedNotes, updated: "Just now" } : c))
                   );
                   setCaseSelected({ ...caseSelected, notes: updatedNotes });
                   setNote("");
-                  toast("Note saved");
+                  toast("Note saved and logged to audit trail");
                 } catch (err) {
                   toast(`Failed to save note: ${(err as Error).message}`);
                 }
@@ -1167,6 +1184,19 @@ function App() {
                     const newStatus = confirm === "Escalate for Review" ? "In review" : "Resolved";
                     try {
                       await updateCase(caseSelected.id, { status: newStatus });
+                      const auditEvt: AuditEvent = {
+                        id: `AUD-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+                        timestamp: new Date().toISOString(),
+                        actor: profile?.display_name || "Analyst",
+                        role: profile?.role || "fraud_analyst",
+                        action: "Case disposition recorded",
+                        resourceType: "Case",
+                        resourceId: caseSelected.id,
+                        result: "Success",
+                        details: `Recorded disposition "${confirm}" (status: ${newStatus}) for case ${caseSelected.id}`,
+                      };
+                      await recordAuditRemote(auditEvt);
+                      setAuditLogs((prev) => [auditEvt, ...prev]);
                       setCases((cs) =>
                         cs.map((c) => (c.id === caseSelected.id ? { ...c, status: newStatus, updated: "Just now" } : c))
                       );
@@ -1289,7 +1319,7 @@ function Overview({
         />
         <KPI label="Fraud rate" value={fraudRate} change={flaggedCount > 0 ? "Elevated" : "Normal"} tone="amber" foot="Observed alert ratio" icon={AlertTriangle} />
         <KPI label="High-risk exposure" value={exposureFormatted} change={`${txns.filter(t => t.score >= 75).length} elevated items`} tone="red" foot="Flagged transaction volume" icon={ArrowUpRight} />
-        <KPI label="Avg. inference latency" value={avgLatency} change="P95 < 25ms" tone="blue" foot="Measured ML execution" icon={Timer} />
+        <KPI label="Avg. inference latency" value={avgLatency} change="P95 < 25ms (est.)" tone="blue" foot="Demo cohort sample mean" icon={Timer} />
       </div>
 
       <div className="charts-grid">
@@ -1419,7 +1449,7 @@ function Overview({
           <div className="health-list">
             {[
               ["Database Service", isConfigured ? "Supabase Postgres Connected" : "Local Mock Adapter", isConfigured ? "green" : "amber"],
-              ["ML scoring model", "v1.8.2 · Ready", "green"],
+              ["ML scoring model", "fraud-v2.0.0-logistic · Ready", "green"],
               ["Event stream", "Active Pipeline", "green"],
             ].map(([a, b, c]) => (
               <div className="health-item" key={a}>
@@ -1972,26 +2002,52 @@ function Explain({
           <p className="body-copy">{tx.explanation}</p>
           <div className="subsection-label">Top risk-increasing factors</div>
           <div className="signal-list">
-            {tx.signals.map((s) => (
-              <div key={s}>
-                <ArrowUpRight size={15} />
-                {s}
-              </div>
-            ))}
+            {(attrib.filter((a) => a.value > 0).length > 0
+              ? attrib.filter((a) => a.value > 0).map((a) => (
+                  <div key={a.name}>
+                    <ArrowUpRight size={15} />
+                    {FEATURE_LABELS[a.name] ?? a.name} (+{a.value.toFixed(2)})
+                  </div>
+                ))
+              : tx.signals.map((s) => (
+                  <div key={s}>
+                    <ArrowUpRight size={15} />
+                    {s}
+                  </div>
+                ))
+            )}
           </div>
           <div className="subsection-label">Factors reducing the score</div>
           <div className="signal-list">
-            <div className="signal-neutral">
-              <ArrowDownRight size={15} />
-              No reducing factors detected in this session
-            </div>
+            {attrib.filter((a) => a.value < 0).length > 0 ? (
+              attrib.filter((a) => a.value < 0).map((a) => (
+                <div key={a.name} className="signal-neutral">
+                  <ArrowDownRight size={15} />
+                  {FEATURE_LABELS[a.name] ?? a.name} ({a.value.toFixed(2)})
+                </div>
+              ))
+            ) : (
+              <div className="signal-neutral">
+                <ArrowDownRight size={15} />
+                No negative contributions recorded
+              </div>
+            )}
           </div>
-          <div className="subsection-label">Matched rules</div>
+          <div className="subsection-label">Matched signals & rules</div>
           <div className="signal-list">
-            <div>
-              <Check size={15} />
-              Rule matches integrated with inference score
-            </div>
+            {tx.signals.length > 0 ? (
+              tx.signals.map((s) => (
+                <div key={s}>
+                  <Check size={15} />
+                  {s}
+                </div>
+              ))
+            ) : (
+              <div className="signal-neutral">
+                <Check size={15} />
+                No rule constraints triggered
+              </div>
+            )}
           </div>
         </Card>
       </div>
@@ -2106,29 +2162,29 @@ function Analytics() {
         </Card>
       </div>
       <Card>
-        <SectionTitle title="Dataset reference" sub="ULB Credit Card Fraud Detection benchmark dataset" />
+        <SectionTitle title="Dataset reference" sub="Deterministic synthetic transaction dataset (ml/train.py)" />
         <div className="dataset-grid">
           <div>
             <small>TOTAL TRANSACTIONS</small>
-            <strong>284,807</strong>
+            <strong>8,000</strong>
           </div>
           <div>
             <small>FRAUD CASES</small>
-            <strong>492</strong>
+            <strong>314</strong>
           </div>
           <div>
             <small>FRAUD PREVALENCE</small>
-            <strong>≈ 0.172%</strong>
+            <strong>3.93%</strong>
           </div>
           <div>
             <small>FEATURES</small>
-            <strong>V1–V28, Time, Amount</strong>
+            <strong>Amount, Velocity, Device, Location, Hour, Channel</strong>
           </div>
         </div>
-        <p className="muted-note">V1–V28 are PCA-derived features normalized from confidential cardholder transactions.</p>
+        <p className="muted-note">Trained on deterministic synthetic distributions (split: 4,800 train / 1,600 val / 1,600 held-out test). Real-world validation pending.</p>
       </Card>
       <Card>
-        <SectionTitle title="Model comparison" sub="Evaluated models in current registry" />
+        <SectionTitle title="Model comparison" sub="Held-out test set evaluation (N=1,600; 63 fraud, 1,537 legitimate)" />
         <Table>
           <thead>
             <tr>
@@ -2137,26 +2193,27 @@ function Analytics() {
               <th>PRECISION</th>
               <th>RECALL</th>
               <th>F1 SCORE</th>
-              <th>FALSE-POSITIVE RATE</th>
-              <th>LATENCY</th>
+              <th>PR-AUC</th>
+              <th>THRESHOLD</th>
               <th>STATUS</th>
             </tr>
           </thead>
           <tbody>
             {[
-              ["fraud-v1.8.2", "Random Forest Ensemble", "94.8%", "82.4%", "0.88", "0.08%", "18 ms", "Production"],
-              ["lr-v0.1", "Logistic Regression Baseline", "88.2%", "71.0%", "0.78", "0.22%", "4 ms", "Candidate"],
-            ].map(([v, a, p, r, f, fpr, lat, st]) => (
+              ["fraud-v2.0.0-logistic", "Logistic Regression (StandardScaler + L2)", "92.3%", "95.2%", "0.938", "0.990", "0.83", "Production Active"],
+              ["transparent-rule-baseline", "Deterministic Boundary Rules", "96.1%", "77.8%", "0.860", "0.756", "0.50", "Baseline"],
+              ["majority-class-baseline", "Zero-Rule Constant Predictor", "0.0%", "0.0%", "0.000", "0.039", "0.50", "Reference"],
+            ].map(([v, a, p, r, f, prauc, thresh, st]) => (
               <tr key={v}>
                 <td>{v}</td>
                 <td>{a}</td>
                 <td>{p}</td>
                 <td>{r}</td>
                 <td>{f}</td>
-                <td>{fpr}</td>
-                <td>{lat}</td>
+                <td>{prauc}</td>
+                <td>{thresh}</td>
                 <td>
-                  <Badge tone={st === "Production" ? "green" : "blue"}>{st}</Badge>
+                  <Badge tone={st === "Production Active" ? "green" : st === "Baseline" ? "amber" : "blue"}>{st}</Badge>
                 </td>
               </tr>
             ))}
@@ -2401,33 +2458,33 @@ function Rules({
             <tbody>
               <tr>
                 <td>Fraud Risk Classifier</td>
-                <td>fraud-v1.8.2</td>
-                <td>Random Forest Ensemble</td>
+                <td>fraud-v2.0.0-logistic</td>
+                <td>Logistic Regression (StandardScaler + L2)</td>
                 <td>
                   <Badge tone="green">Production Active</Badge>
                 </td>
-                <td>Oct 14, 2026</td>
-                <td>14.2 MB</td>
-                <td>18 ms</td>
+                <td>Oct 18, 2026</td>
+                <td>3.8 KB</td>
+                <td>&lt; 2 ms</td>
                 <td>
                   <Badge tone="green">Primary</Badge>
                 </td>
               </tr>
               <tr>
-                <td>Baseline Classifier</td>
-                <td>lr-v0.1</td>
-                <td>Logistic Regression</td>
+                <td>Rule-Based Baseline</td>
+                <td>transparent-rule-baseline</td>
+                <td>Deterministic Heuristic Rules</td>
                 <td>
-                  <Badge tone="blue">Candidate</Badge>
+                  <Badge tone="amber">Baseline</Badge>
                 </td>
-                <td>Oct 10, 2026</td>
-                <td>1.1 MB</td>
-                <td>4 ms</td>
-                <td>—</td>
+                <td>Oct 18, 2026</td>
+                <td>In-Memory</td>
+                <td>&lt; 1 ms</td>
+                <td>Secondary</td>
               </tr>
             </tbody>
           </Table>
-          <p className="muted-note">Model artifacts are verified with SHA-256 signatures before serving live inference.</p>
+          <p className="muted-note">Trained by ml/train.py on synthetic data (sha256: 84c8b6ed92...); ported to supabase/functions/_shared/fraudModel.ts.</p>
         </Card>
       )}
       {tab === "Decision Thresholds" && (

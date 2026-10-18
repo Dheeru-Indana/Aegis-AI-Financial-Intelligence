@@ -12,10 +12,10 @@ interface DriftMetric {
 
 const mockDriftData: DriftMetric[] = [
   { feature: "Transaction Amount", baselineMean: 12400, currentMean: 18950, psiScore: 0.28, status: "Severe Drift" },
-  { feature: "Attempt Velocity (5m)", baselineMean: 1.2, currentMean: 2.1, psiScore: 0.19, status: "Moderate Drift" },
+  { feature: "Attempt Velocity", baselineMean: 1.2, currentMean: 2.1, psiScore: 0.19, status: "Moderate Drift" },
+  { feature: "New Device Ratio", baselineMean: 0.08, currentMean: 0.22, psiScore: 0.21, status: "Moderate Drift" },
+  { feature: "Location Change Ratio", baselineMean: 0.05, currentMean: 0.14, psiScore: 0.17, status: "Moderate Drift" },
   { feature: "Hour of Day", baselineMean: 14.5, currentMean: 14.2, psiScore: 0.04, status: "Normal" },
-  { feature: "PCA Component V14", baselineMean: -0.05, currentMean: 0.12, psiScore: 0.22, status: "Severe Drift" },
-  { feature: "PCA Component V12", baselineMean: -0.02, currentMean: 0.08, psiScore: 0.11, status: "Moderate Drift" },
 ];
 
 const driftTrends = [
@@ -38,7 +38,10 @@ export const DriftRadar: React.FC = () => {
           <h2>Fraud & Model Drift Radar</h2>
           <p>Population Stability Index (PSI) and feature distribution tracking against verified training baselines.</p>
         </div>
-        <span className="badge red">PSI 0.28 — DRIFT DETECTED</span>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <span className="badge amber">Illustrative Demo Data · Continuous Monitor Pending</span>
+          <span className="badge red">PSI 0.28 — DRIFT DETECTED</span>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -50,8 +53,8 @@ export const DriftRadar: React.FC = () => {
         </section>
         <section className="panel kpi">
           <div className="kpi-top"><span>DRIFTING FEATURES</span><span className="kpi-icon amber"><TrendingUp size={17} /></span></div>
-          <div className="kpi-value">3 / 28</div>
-          <div className="kpi-foot"><span>Amount, Velocity, V14</span></div>
+          <div className="kpi-value">3 / 7</div>
+          <div className="kpi-foot"><span>Amount, Velocity, New Device</span></div>
         </section>
         <section className="panel kpi">
           <div className="kpi-top"><span>ALERT RATE DRIFT</span><span className="kpi-icon cyan"><Activity size={17} /></span></div>
@@ -60,8 +63,8 @@ export const DriftRadar: React.FC = () => {
         </section>
         <section className="panel kpi">
           <div className="kpi-top"><span>MODEL STABILITY</span><span className="kpi-icon green"><ShieldCheck size={17} /></span></div>
-          <div className="kpi-value">v1.8.2</div>
-          <div className="kpi-foot"><span>Retraining recommended</span></div>
+          <div className="kpi-value">v2.0.0</div>
+          <div className="kpi-foot"><span>fraud-v2.0.0-logistic</span></div>
         </section>
       </div>
 

@@ -13,7 +13,7 @@ const presetQueries = [
   "Why was transaction TXN-20481 flagged?",
   "Which active risk rules contributed most this week?",
   "Summarize evidence for Fraud Case CASE-0081",
-  "Compare policy threshold changes from v1.8.1 to v1.8.2",
+  "What features dominate the fraud-v2.0.0-logistic score?",
 ];
 
 export const AnalystCopilot: React.FC = () => {
@@ -21,7 +21,7 @@ export const AnalystCopilot: React.FC = () => {
     {
       id: "m-1",
       sender: "copilot",
-      text: "Hello Analyst. I am the AegisAI Investigation Copilot. I synthesize evidence strictly grounded in your active PostgreSQL transactions, case timelines, and trained model attributions. How can I assist your triage?",
+      text: "Hello Analyst. I am the AegisAI Investigation Copilot (scripted demo assistant). I answer common triage questions using pattern matching against demo case notes, rule triggers, and model coefficients. How can I assist your triage?",
       timestamp: "Just now",
     },
   ]);
@@ -48,11 +48,11 @@ export const AnalystCopilot: React.FC = () => {
 
       if (queryText.includes("TXN-20481")) {
         replyText =
-          "Transaction TXN-20481 was flagged with an estimated risk score of 94/100. Key drivers include an amount anomaly of ₹1,84,500 (> ₹1,00,000 threshold), an unrecognized device fingerprint, and severe PCA feature deviation in component V14 (+0.31 contribution).";
+          "Transaction TXN-20481 was flagged with an estimated risk score of 94/100. Key drivers include an amount anomaly of ₹1,84,500 (> ₹1,00,000 threshold), an unrecognized device fingerprint, and 4 repeated attempts contributing heavily to normalized velocity.";
         citations = [
           { type: "Transaction Record", ref: "TXN-20481", detail: "Amount: ₹1,84,500 via UPI" },
           { type: "Active Risk Rule", ref: "R-01", detail: "High Transaction Amount (> ₹1,00,000)" },
-          { type: "Model Attribution", ref: "fraud-v1.8.2", detail: "SHAP V14 attribution +0.31" },
+          { type: "Model Attribution", ref: "fraud-v2.0.0-logistic", detail: "Log-odds: amount_norm +37.24, velocity_norm +6.48" },
         ];
       } else if (queryText.includes("CASE-0081") || queryText.includes("Summarize")) {
         replyText =
@@ -63,14 +63,14 @@ export const AnalystCopilot: React.FC = () => {
         ];
       } else if (queryText.includes("rules") || queryText.includes("contributed")) {
         replyText =
-          "Across the latest batch of 24,831 evaluated transactions, Rule R-01 (High Transaction Amount) and Rule R-02 (Repeated Transaction Attempts) triggered 78% of all elevated VERIFY and FLAG outcomes.";
+          "Across the evaluated transactions, Rule R-01 (High Transaction Amount) and Rule R-02 (Repeated Transaction Attempts) triggered the majority of elevated VERIFY and FLAG outcomes.";
         citations = [
           { type: "Risk Engine", ref: "R-01 & R-02", detail: "Combined impact: +55 risk points" },
         ];
       } else {
-        replyText = `Based on authorized telemetry records for "${queryText}": All related transactions are scored under model fraud-v1.8.2. No active policy deviations were found for this entity.`;
+        replyText = `Based on scripted pattern matching for "${queryText}": Active transactions are evaluated under model fraud-v2.0.0-logistic (trained on synthetic data). No active rule violations found.`;
         citations = [
-          { type: "Database Scope", ref: "public.transactions", detail: "Filtered under active analyst RLS policy" },
+          { type: "Scoring Scope", ref: "fraud-v2.0.0-logistic", detail: "Standardized logistic regression pipeline" },
         ];
       }
 
@@ -91,10 +91,10 @@ export const AnalystCopilot: React.FC = () => {
     <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       <div className="section-title">
         <div>
-          <h2>Evidence-Based Analyst Copilot</h2>
-          <p>Context-aware investigation assistant grounded in verified audit traces, feature SHAP attributions, and rule matches.</p>
+          <h2>Analyst Copilot</h2>
+          <p>Scripted investigation assistant demonstrating evidence extraction across demo audit traces, logistic coefficients, and rule triggers (No external LLM connected).</p>
         </div>
-        <span className="badge cyan"><Sparkles size={13} style={{ marginRight: 4 }} /> GROUNDED AI</span>
+        <span className="badge amber"><Sparkles size={13} style={{ marginRight: 4 }} /> SCRIPTED DEMO</span>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: "16px" }}>

@@ -2,7 +2,7 @@ import { transactions as mockTransactions } from "../mocks/data";
 import { apiRequest, USE_MOCKS } from "./apiClient";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
 import type { Transaction } from "../types";
-import { riskBandForDecision } from "../../supabase/functions/_shared/fraudModel.ts";
+import { riskBandForDecision, MODEL_VERSION } from "../../supabase/functions/_shared/fraudModel.ts";
 
 export async function listTransactions(): Promise<Transaction[]> {
   if (isSupabaseConfigured && supabase) {
@@ -157,7 +157,7 @@ export async function scoreTransaction(payload: Record<string, unknown>) {
     decision: res.decision,
     riskLevel: riskBandForDecision(res.decision),
     signals: res.signals,
-    modelVersion: `fraud-v${res.version}`,
+    modelVersion: MODEL_VERSION,
     latency: res.latencyMs,
     explanation: res.explanation,
     attributions: res.attributions,
