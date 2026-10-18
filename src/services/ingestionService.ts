@@ -99,13 +99,14 @@ export function parseAndIngestCsv(
 
           try {
             await insertTransaction(newTx);
+            // Only count and surface the transaction if persistence succeeded
+            newTransactions.push(newTx);
+            accepted++;
           } catch (insertErr) {
-            // Log persistence error without silently dropping
-            errors.push(`Row ${i + 1} (${txId}): ${(insertErr as Error).message}`);
+            // Log persistence error without silently dropping or inflating accepted count
+            rejected++;
+            errors.push(`Row ${i + 1} (${txId}): persist failed – ${(insertErr as Error).message}`);
           }
-
-          newTransactions.push(newTx);
-          accepted++;
         }
 
         resolve({
