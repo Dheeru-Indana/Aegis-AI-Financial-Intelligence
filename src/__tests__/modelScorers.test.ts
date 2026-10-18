@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { RuleBasedScorer, TrainedMLScorer, scoreWithEnsemble } from "../services/modelScorers";
+import { MODEL_PARAMETERS, scoreWithModel } from "../../supabase/functions/_shared/fraudModel.ts";
 import type { RiskRule } from "../types";
 
 describe("Lightweight Model Scorers Architecture", () => {
@@ -43,7 +44,17 @@ describe("Lightweight Model Scorers Architecture", () => {
     const highTx = mlScorer.score({ amount: 120000, channel: "Net banking", attemptCount: 6, isNewDevice: true });
     expect(highTx.probability).toBeGreaterThan(0.7);
     expect(highTx.decision).toBe("FLAG");
-    expect(highTx.attributions.length).toBe(4);
+    expect(highTx.attributions.length).toBe(MODEL_PARAMETERS.encodedFeatures.length);
+  });
+
+  it("TrainedMLScorer agrees with the shared trained-pipeline port, including channel", () => {
+    const mlScorer = new TrainedMLScorer();
+    const tx = { amount: 30000, channel: "UPI", attemptCount: 1, hourOfDay: 14 };
+    const res = mlScorer.score(tx);
+    expect(res.probability).toBeCloseTo(scoreWithModel(tx).probability, 4);
+    // Previously the scaler and channel weights were ignored, scoring this ~0.52 (VERIFY)
+    expect(res.decision).toBe("ALLOW");
+    expect(mlScorer.score({ ...tx, channel: "Card" }).probability).toBeGreaterThan(res.probability);
   });
 
   it("scoreWithEnsemble produces consensus diagnostics without fabricating scores", () => {
@@ -54,7 +65,9 @@ describe("Lightweight Model Scorers Architecture", () => {
       isNewDevice: true,
     });
 
-    expect(result.primary.version).toBe("1.8.2");
+    expect(result.primary.version).toBe("1.0.0");
+    expect(result.primary.scorerType).toBe("Ensemble");
+    expect(result.primary.attributions).toEqual(result.mlBased.attributions);
     expect(result.ruleBased.scorerType).toBe("RuleBased");
     expect(result.mlBased.scorerType).toBe("TrainedML");
     expect(typeof result.consensus).toBe("boolean");

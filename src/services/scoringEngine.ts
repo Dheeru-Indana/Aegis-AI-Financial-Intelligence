@@ -1,5 +1,11 @@
 import { z } from "zod";
-import type { Decision, RiskRule, Transaction } from "../types";
+import type { Decision, RiskRule } from "../types";
+import {
+  MODEL_VERSION,
+  decisionForProbability,
+  riskBandForDecision,
+  scoreWithModel,
+} from "../../supabase/functions/_shared/fraudModel.ts";
 
 export const TransactionInputSchema = z.object({
   id: z.string().optional(),
@@ -30,52 +36,33 @@ export interface ScoringResult {
 }
 
 /**
- * Deterministic scoring engine for AegisAI
- * Combines ML probability estimate (simulated via weighted feature factors)
- * and active risk rules evaluation.
+ * Deterministic scoring engine for AegisAI.
+ * Scores the transaction with the trained logistic regression (fraud-v2.0.0-logistic,
+ * synthetic training data), then adds the impact of every matched risk rule.
  */
 export function scoreTransactionDeterministic(
-  input: TransactionInput,
+  rawInput: TransactionInput,
   rules: RiskRule[] = []
 ): ScoringResult {
   const startTime = performance.now();
+  const input = TransactionInputSchema.parse(rawInput);
   const signals: string[] = [];
   const matchedRules: string[] = [];
-  let baseScore = 10; // Baseline low risk
 
-  // 1. Feature evaluation
-  if (input.amount > 100000) {
-    baseScore += 35;
-    signals.push("Amount anomaly");
-  } else if (input.amount > 50000) {
-    baseScore += 18;
-  }
-
-  const attemptCount = input.attemptCount ?? 1;
-  if (attemptCount >= 4) {
-    baseScore += 30;
-    signals.push("Repeated attempts");
-  } else if (attemptCount >= 2) {
-    baseScore += 10;
-  }
-
-  if (input.isNewDevice) {
-    baseScore += 15;
-    signals.push("New device");
-  }
-
-  if (input.locationChange) {
-    baseScore += 20;
-    signals.push("Location change");
-  }
-
+  const attemptCount = input.attemptCount;
   const hour = input.hourOfDay ?? new Date().getHours();
-  if (hour < 5 || hour > 23) {
-    baseScore += 12;
-    signals.push("Unusual timing");
-  }
+
+  // 1. ML risk scoring
+  const model = scoreWithModel({ ...input, hourOfDay: hour });
+
+  if (input.amount > 100000) signals.push("Amount anomaly");
+  if (attemptCount >= 4) signals.push("Repeated attempts");
+  if (input.isNewDevice) signals.push("New device");
+  if (input.locationChange) signals.push("Location change");
+  if (hour < 5 || hour >= 23) signals.push("Unusual timing");
 
   // 2. Active Risk Rule Evaluation
+  let ruleImpact = 0;
   for (const rule of rules) {
     if (!rule.enabled) continue;
     let triggered = false;
@@ -86,13 +73,13 @@ export function scoreTransactionDeterministic(
     } else if (rule.feature === "attempt_count") {
       if (rule.operator === ">=" && attemptCount >= rule.threshold) triggered = true;
     } else if (rule.feature === "hour_of_day") {
-      if (rule.operator === "outside" && (hour < rule.threshold || hour > 23)) triggered = true;
+      if (rule.operator === "outside" && (hour < rule.threshold || hour >= 23)) triggered = true;
     } else if (rule.feature === "risk_signal_count") {
       if (rule.operator === ">=" && signals.length >= rule.threshold) triggered = true;
     }
 
     if (triggered) {
-      baseScore += rule.impact;
+      ruleImpact += rule.impact;
       matchedRules.push(rule.name);
       if (!signals.includes(rule.name)) {
         signals.push(rule.name);
@@ -100,40 +87,31 @@ export function scoreTransactionDeterministic(
     }
   }
 
-  // Cap score between 0 and 99
-  const finalScore = Math.min(Math.max(baseScore, 5), 98);
-  const decision: Decision = finalScore >= 75 ? "FLAG" : finalScore >= 45 ? "VERIFY" : "ALLOW";
-  const riskLevel: "Low" | "Medium" | "High" = finalScore >= 75 ? "High" : finalScore >= 45 ? "Medium" : "Low";
+  // 3. Rule impacts are score points on top of the model probability; with no matched
+  // rules the decision is exactly the model's own threshold decision.
+  const adjusted = Math.min(1, Math.max(0, model.probability + ruleImpact / 100));
+  const finalScore = Math.round(adjusted * 100);
+  const decision: Decision = decisionForProbability(adjusted);
+  const riskLevel = riskBandForDecision(decision);
 
-  // Feature attributions (PCA components simulated for ML transparency)
-  const v14Val = finalScore >= 75 ? 0.32 : -0.15;
-  const v12Val = signals.includes("Amount anomaly") ? 0.26 : 0.05;
-  const v10Val = signals.includes("Repeated attempts") ? 0.19 : -0.04;
-  const v4Val = input.isNewDevice ? 0.14 : -0.12;
-  const v17Val = -0.08;
+  const attributions = model.contributions
+    .slice(0, 5)
+    .map((c) => ({ name: c.name, value: Number(c.contribution.toFixed(3)) }));
 
-  const attributions = [
-    { name: "V14", value: v14Val },
-    { name: "V12", value: v12Val },
-    { name: "V10", value: v10Val },
-    { name: "V4", value: v4Val },
-    { name: "V17", value: v17Val },
-  ];
-
-  const latencyMs = Math.round(performance.now() - startTime) + 14;
+  const latencyMs = Math.round(performance.now() - startTime);
 
   const explanation =
     decision === "FLAG"
-      ? `Transaction scored ${finalScore}/100. High risk driven by ${signals.join(", ") || "elevated feature volatility"}. Recommended action: manual analyst review.`
+      ? `Transaction scored ${finalScore}/100. High risk driven by ${signals.join(", ") || "the model score"}. Recommended action: manual analyst review.`
       : decision === "VERIFY"
-      ? `Transaction scored ${finalScore}/100. Moderately elevated indicators detected (${signals.join(", ")}). Step-up customer authentication suggested.`
-      : `Transaction scored ${finalScore}/100. Behavioral parameters within normal historical ranges.`;
+      ? `Transaction scored ${finalScore}/100. Moderately elevated indicators detected (${signals.join(", ") || "model score"}). Step-up customer authentication suggested.`
+      : `Transaction scored ${finalScore}/100. Model score and rules below review thresholds.`;
 
   const decisionTrace = [
     { stage: "01", title: "Transaction received", detail: "Payload validated via Zod schema" },
-    { stage: "02", title: "Feature preparation", detail: `Calculated amount & velocity features for ${input.customer}` },
-    { stage: "03", title: "ML risk scoring", detail: `Calculated model probability score: ${finalScore}/100` },
-    { stage: "04", title: "Rule evaluation", detail: `${matchedRules.length} risk rule(s) matched` },
+    { stage: "02", title: "Feature preparation", detail: `Calculated amount, velocity, device, location and time features for ${input.customer}` },
+    { stage: "03", title: "ML risk scoring", detail: `${MODEL_VERSION} score: ${model.probability.toFixed(3)}` },
+    { stage: "04", title: "Rule evaluation", detail: `${matchedRules.length} risk rule(s) matched (+${ruleImpact} points)` },
     { stage: "05", title: "Final decision", detail: `${decision} (${riskLevel} risk)` },
   ];
 
@@ -144,7 +122,7 @@ export function scoreTransactionDeterministic(
     latencyMs,
     signals: signals.length > 0 ? signals : ["Known device profile"],
     matchedRules,
-    modelVersion: "fraud-v1.8.2",
+    modelVersion: MODEL_VERSION,
     explanation,
     attributions,
     decisionTrace,

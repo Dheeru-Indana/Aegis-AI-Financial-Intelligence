@@ -224,6 +224,46 @@ def train_pipeline(n_samples: int = 8000, random_seed: int = 42) -> Dict[str, An
     }
     intercept = round(float(fitted_classifier.intercept_[0]), 4)
 
+    # Full-precision parameters so the TypeScript scorers (browser + Edge Function) can
+    # reproduce pipeline.predict_proba exactly. The classifier sees *standardized* numerics,
+    # so the coefficients are meaningless without the scaler's mean and scale.
+    num_scaler = fitted_preprocessor.named_transformers_["num"]
+    inference_parameters = {
+        "numeric_features": NUMERIC_FEATURES,
+        "numeric_means": [float(v) for v in num_scaler.mean_],
+        "numeric_scales": [float(v) for v in num_scaler.scale_],
+        "channel_categories": [str(c) for c in cat_encoder.categories_[0]],
+        "encoded_features": feature_names,
+        "coefficients": [float(c) for c in fitted_classifier.coef_[0]],
+        "intercept": float(fitted_classifier.intercept_[0]),
+    }
+
+    # Golden cases: pipeline outputs for fixed inputs, used by the TypeScript parity test
+    parity_cases = []
+    for amount in [450.0, 4800.0, 26000.0, 61000.0, 135000.0]:
+        for channel in ["UPI", "Card", "Net banking", "Wallet"]:
+            for attempts, new_device, loc_change, hour in [(1, False, False, 14), (4, True, True, 2)]:
+                tx_input = RawTransactionInput(
+                    amount=amount,
+                    channel=channel,
+                    attempt_count=attempts,
+                    is_new_device=new_device,
+                    location_change=loc_change,
+                    hour_of_day=hour,
+                )
+                row = pd.DataFrame([extract_features_from_input(tx_input)])
+                parity_cases.append({
+                    "input": {
+                        "amount": amount,
+                        "channel": channel,
+                        "attempt_count": attempts,
+                        "is_new_device": new_device,
+                        "location_change": loc_change,
+                        "hour_of_day": hour,
+                    },
+                    "fraud_probability": float(pipeline.predict_proba(row)[0, 1]),
+                })
+
     # 6. Save Model Artifact and Metadata
     artifact_path = ARTIFACTS_DIR / f"{MODEL_VERSION}.joblib"
     joblib.dump(pipeline, artifact_path)
@@ -241,6 +281,8 @@ def train_pipeline(n_samples: int = 8000, random_seed: int = 42) -> Dict[str, An
         "intercept": intercept,
         "coefficients": coefficients,
         "optimal_threshold": round(best_threshold, 4),
+        "probability_calibration": "uncalibrated: class_weight='balanced' inflates probabilities relative to the training fraud rate; treat as a ranking score with the validated threshold",
+        "inference_parameters": inference_parameters,
         "training_timestamp": datetime.now(timezone.utc).isoformat(),
         "training_duration_seconds": training_duration_s,
         "artifact_file": artifact_path.name,
@@ -284,6 +326,9 @@ def train_pipeline(n_samples: int = 8000, random_seed: int = 42) -> Dict[str, An
         json.dump(metadata, f, indent=2)
 
     print(f"Artifact saved: {artifact_path} ({metadata['artifact_size_kb']} KB)")
+    with open(ARTIFACTS_DIR / "parity_cases.json", "w") as f:
+        json.dump({"model_version": MODEL_VERSION, "cases": parity_cases}, f, indent=2)
+
     print(f"Metadata saved: {metadata_path}")
     return metadata
 

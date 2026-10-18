@@ -83,8 +83,8 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   risk_level TEXT NOT NULL CHECK (risk_level IN ('Low', 'Medium', 'High')),
   decision decision_type NOT NULL,
   scoring_status TEXT NOT NULL DEFAULT 'SCORED',
-  model_version TEXT NOT NULL DEFAULT 'fraud-v1.8.2',
-  latency_ms INTEGER NOT NULL DEFAULT 18,
+  model_version TEXT NOT NULL DEFAULT 'unrecorded',
+  latency_ms INTEGER NOT NULL DEFAULT 0,
   signals TEXT[] NOT NULL DEFAULT '{}',
   explanation TEXT,
   case_id TEXT,
@@ -392,35 +392,36 @@ END $$;
 
 INSERT INTO public.model_registry (id, name, version, algorithm, training_dataset_reference, deployment_status, is_active, evaluation_summary, created_by)
 VALUES
-  ('fraud-v1.8.2', 'Fraud Risk Ensemble', 'v1.8.2', 'Random Forest Classifier', 'ULB Credit Card Fraud (284,807 transactions)', 'deployed', true, '{"precision": 0.948, "recall": 0.824, "f1": 0.881, "fpr": 0.0008, "latency_ms": 18}'::jsonb, 'MLOps Team'),
-  ('lr-v0.1', 'Baseline Risk Scorer', 'v0.1.0', 'Logistic Regression', 'ULB Credit Card Fraud (284,807 transactions)', 'candidate', false, '{"precision": 0.882, "recall": 0.710, "f1": 0.787, "fpr": 0.0022, "latency_ms": 4}'::jsonb, 'MLOps Team')
+  ('fraud-v2.0.0-logistic', 'AegisAI Logistic Fraud Classifier', 'v2.0.0', 'Logistic Regression (class_weight=balanced)', 'Synthetic demo data (8,000 generated transactions, ml/data_generator.py)', 'deployed', true, '{"precision": 0.9231, "recall": 0.9524, "f1": 0.9375, "fpr": 0.0033, "pr_auc": 0.99, "threshold": 0.83, "dataset": "synthetic_demo"}'::jsonb, 'ml/train.py'),
+  ('rule-baseline-v1', 'Transparent Rule Baseline', 'v1.0.0', 'Rule: amount >= 50,000 INR or >= 4 attempts', 'Synthetic demo data (8,000 generated transactions, ml/data_generator.py)', 'validated', false, '{"precision": 0.9608, "recall": 0.7778, "f1": 0.8596, "fpr": 0.0013, "pr_auc": 0.756, "dataset": "synthetic_demo"}'::jsonb, 'ml/train.py')
 ON CONFLICT (id) DO UPDATE SET updated_at = now();
 
 INSERT INTO public.model_evaluations (model_id, dataset_version, total_samples, fraud_samples, precision, recall, f1_score, fpr, pr_auc, confusion_matrix, notes)
 VALUES
-  ('fraud-v1.8.2', 'ULB-2026-Q3-TEST', 56962, 98, 0.9480, 0.8240, 0.8810, 0.0008, 0.8730, '{"tp": 81, "fp": 4, "tn": 56860, "fn": 17}'::jsonb, 'Evaluated at default probability threshold 0.75')
+  ('fraud-v2.0.0-logistic', 'synthetic-demo-test-split (caf8ae97c06a0ce1)', 1600, 63, 0.9231, 0.9524, 0.9375, 0.0033, 0.9900, '{"tp": 60, "fp": 5, "tn": 1532, "fn": 3}'::jsonb, 'Held-out synthetic test split at validated threshold 0.83. Not validated on real transactions.'),
+  ('rule-baseline-v1', 'synthetic-demo-test-split (caf8ae97c06a0ce1)', 1600, 63, 0.9608, 0.7778, 0.8596, 0.0013, 0.7560, '{"tp": 49, "fp": 2, "tn": 1535, "fn": 14}'::jsonb, 'Same held-out synthetic test split; rule baseline from ml/train.py.')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO public.transactions (id, external_transaction_id, customer_reference, amount, currency, channel, merchant_reference, timestamp, score, risk_level, decision, scoring_status, model_version, latency_ms, signals, explanation, case_id)
 VALUES
-  ('TXN-20481', 'EXT-98214', 'CUST-7A21', 184500.00, 'INR', 'UPI', 'MERCH-ELECTRONICS-09', now() - interval '2 minutes', 94, 'High', 'FLAG', 'SCORED', 'fraud-v1.8.2', 18, ARRAY['Velocity spike', 'Amount anomaly', 'New device'], 'Multiple operational signals crossed the configured review threshold.', 'CASE-0081'),
-  ('TXN-20482', 'EXT-98215', 'CUST-19D4', 2450.00, 'INR', 'Card', 'MERCH-GROCERY-01', now() - interval '3 minutes', 18, 'Low', 'ALLOW', 'SCORED', 'fraud-v1.8.2', 16, ARRAY['Known device'], 'Observed features are consistent with the low-risk profile.', NULL),
-  ('TXN-20483', 'EXT-98216', 'CUST-3F90', 38600.00, 'INR', 'Net banking', 'MERCH-JEWELRY-04', now() - interval '5 minutes', 71, 'Medium', 'VERIFY', 'SCORED', 'fraud-v1.8.2', 21, ARRAY['Unusual timing', 'Location change'], 'Elevated risk signals suggest step-up OTP verification.', 'CASE-0083'),
-  ('TXN-20484', 'EXT-98217', 'CUST-0C62', 790.00, 'INR', 'UPI', 'MERCH-COFFEE-12', now() - interval '7 minutes', 9, 'Low', 'ALLOW', 'SCORED', 'fraud-v1.8.2', 14, ARRAY['Known device'], 'No configured risk rule was triggered.', NULL),
-  ('TXN-20485', 'EXT-98218', 'CUST-8B13', 98200.00, 'INR', 'Card', 'MERCH-LUXURY-02', now() - interval '10 minutes', 86, 'High', 'FLAG', 'SCORED', 'fraud-v1.8.2', 19, ARRAY['Repeated attempts', 'Amount anomaly'], 'Repeated attempts and a high amount contributed to the elevated score.', 'CASE-0082'),
-  ('TXN-20486', 'EXT-98219', 'CUST-1E44', 5200.00, 'INR', 'Wallet', 'MERCH-UTILITY-05', now() - interval '14 minutes', 43, 'Medium', 'VERIFY', 'SCORED', 'fraud-v1.8.2', 17, ARRAY['Device change'], 'One risk signal warrants lightweight verification step.', NULL),
-  ('TXN-20487', 'EXT-98220', 'CUST-77A0', 1250.00, 'INR', 'UPI', 'MERCH-RETAIL-08', now() - interval '18 minutes', 12, 'Low', 'ALLOW', 'SCORED', 'fraud-v1.8.2', 15, ARRAY['Known device'], 'Low estimated risk based on available demo features.', NULL),
-  ('TXN-20488', 'EXT-98221', 'CUST-6D02', 44600.00, 'INR', 'Net banking', 'MERCH-TRAVEL-03', now() - interval '25 minutes', 78, 'High', 'FLAG', 'SCORED', 'fraud-v1.8.2', 20, ARRAY['Velocity spike', 'Location change'], 'Multiple signals increased estimated risk.', NULL)
+  ('TXN-20481', 'EXT-98214', 'CUST-7A21', 184500.00, 'INR', 'UPI', 'MERCH-ELECTRONICS-09', now() - interval '2 minutes', 94, 'High', 'FLAG', 'SCORED', 'demo-seed', 18, ARRAY['Velocity spike', 'Amount anomaly', 'New device'], 'Multiple operational signals crossed the configured review threshold.', 'CASE-0081'),
+  ('TXN-20482', 'EXT-98215', 'CUST-19D4', 2450.00, 'INR', 'Card', 'MERCH-GROCERY-01', now() - interval '3 minutes', 18, 'Low', 'ALLOW', 'SCORED', 'demo-seed', 16, ARRAY['Known device'], 'Observed features are consistent with the low-risk profile.', NULL),
+  ('TXN-20483', 'EXT-98216', 'CUST-3F90', 38600.00, 'INR', 'Net banking', 'MERCH-JEWELRY-04', now() - interval '5 minutes', 71, 'Medium', 'VERIFY', 'SCORED', 'demo-seed', 21, ARRAY['Unusual timing', 'Location change'], 'Elevated risk signals suggest step-up OTP verification.', 'CASE-0083'),
+  ('TXN-20484', 'EXT-98217', 'CUST-0C62', 790.00, 'INR', 'UPI', 'MERCH-COFFEE-12', now() - interval '7 minutes', 9, 'Low', 'ALLOW', 'SCORED', 'demo-seed', 14, ARRAY['Known device'], 'No configured risk rule was triggered.', NULL),
+  ('TXN-20485', 'EXT-98218', 'CUST-8B13', 98200.00, 'INR', 'Card', 'MERCH-LUXURY-02', now() - interval '10 minutes', 86, 'High', 'FLAG', 'SCORED', 'demo-seed', 19, ARRAY['Repeated attempts', 'Amount anomaly'], 'Repeated attempts and a high amount contributed to the elevated score.', 'CASE-0082'),
+  ('TXN-20486', 'EXT-98219', 'CUST-1E44', 5200.00, 'INR', 'Wallet', 'MERCH-UTILITY-05', now() - interval '14 minutes', 43, 'Medium', 'VERIFY', 'SCORED', 'demo-seed', 17, ARRAY['Device change'], 'One risk signal warrants lightweight verification step.', NULL),
+  ('TXN-20487', 'EXT-98220', 'CUST-77A0', 1250.00, 'INR', 'UPI', 'MERCH-RETAIL-08', now() - interval '18 minutes', 12, 'Low', 'ALLOW', 'SCORED', 'demo-seed', 15, ARRAY['Known device'], 'Low estimated risk based on available demo features.', NULL),
+  ('TXN-20488', 'EXT-98221', 'CUST-6D02', 44600.00, 'INR', 'Net banking', 'MERCH-TRAVEL-03', now() - interval '25 minutes', 78, 'High', 'FLAG', 'SCORED', 'demo-seed', 20, ARRAY['Velocity spike', 'Location change'], 'Multiple signals increased estimated risk.', NULL)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.transaction_explanations (transaction_id, model_version, explanation_method, feature_attributions, summary_text, decision_trace)
 VALUES
-  ('TXN-20481', 'fraud-v1.8.2', 'SHAP Feature Attribution',
-   '[{"name":"V14","value":0.31},{"name":"V12","value":0.24},{"name":"V10","value":0.18},{"name":"V4","value":-0.12},{"name":"V17","value":-0.08}]'::jsonb,
-   'High amount and velocity spike along with PCA component V14 deviation triggered an automated FLAG decision.',
+  ('TXN-20481', 'fraud-v2.0.0-logistic', 'Logistic regression log-odds contributions (w * x)',
+   '[{"name":"amount_norm","value":37.24},{"name":"velocity_norm","value":6.48},{"name":"is_new_device","value":2.96},{"name":"channel_UPI","value":-1.75},{"name":"location_change","value":-0.25}]'::jsonb,
+   'Amount (184,500 INR, far above the training average), 4 attempts and a new device dominate the log-odds; the UPI channel lowers them. Features reconstructed from the seed signals.',
    '[{"stage":"01","title":"Transaction received","detail":"Event accepted at gateway"},
-     {"stage":"02","title":"Feature preparation","detail":"PCA features & velocity metrics calculated"},
-     {"stage":"03","title":"ML risk scoring","detail":"Estimated raw score: 94/100"},
+     {"stage":"02","title":"Feature preparation","detail":"Amount, velocity, device, location and time features calculated"},
+     {"stage":"03","title":"ML risk scoring","detail":"fraud-v2.0.0-logistic score: 1.000"},
      {"stage":"04","title":"Rule evaluation","detail":"Triggered: High Transaction Amount, Velocity Spike"},
      {"stage":"05","title":"Final decision","detail":"FLAG"}]'::jsonb
   )
@@ -452,9 +453,9 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.audit_logs (id, timestamp, actor, role, action, resource_type, resource_id, result, details, metadata)
 VALUES
-  ('AUD-91A2', now() - interval '2 minutes', 'risk-engine', 'System', 'Transaction scored', 'Transaction', 'TXN-20481', 'Review', 'Risk score 94; decision FLAG; model fraud-v1.8.2.', '{"score": 94, "decision": "FLAG"}'::jsonb),
+  ('AUD-91A2', now() - interval '2 minutes', 'risk-engine', 'System', 'Transaction scored', 'Transaction', 'TXN-20481', 'Review', 'Risk score 94; decision FLAG; demo seed record.', '{"score": 94, "decision": "FLAG"}'::jsonb),
   ('AUD-91A1', now() - interval '5 minutes', 'Arjun Sharma', 'Analyst', 'Fraud case opened', 'Case', 'CASE-0081', 'Success', 'Case created for high-risk transaction.', '{"case_id": "CASE-0081"}'::jsonb),
   ('AUD-91A0', now() - interval '1 hour', 'Arjun Sharma', 'Analyst', 'Risk rule updated', 'Risk rule', 'R-01', 'Success', 'High Transaction Amount threshold reviewed.', '{"threshold": 100000}'::jsonb),
-  ('AUD-919F', now() - interval '2 hours', 'model-service', 'System', 'Model evaluated', 'Model', 'fraud-v1.8.2', 'Success', 'Evaluation run on test dataset completed.', '{"f1": 0.881}'::jsonb),
+  ('AUD-919F', now() - interval '2 hours', 'model-service', 'System', 'Model evaluated', 'Model', 'fraud-v2.0.0-logistic', 'Success', 'Held-out synthetic test split evaluation completed.', '{"f1": 0.9375}'::jsonb),
   ('AUD-919E', now() - interval '3 hours', 'R. Iyer', 'Analyst', 'Analyst note added', 'Case', 'CASE-0082', 'Success', 'Added investigation note regarding repeated attempts.', '{"author": "R. Iyer"}'::jsonb)
 ON CONFLICT (id) DO NOTHING;

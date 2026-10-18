@@ -1,0 +1,445 @@
+{
+  "model_version": "fraud-v2.0.0-logistic",
+  "cases": [
+    {
+      "input": {
+        "amount": 450.0,
+        "channel": "UPI",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 9.896982973921936e-05
+    },
+    {
+      "input": {
+        "amount": 450.0,
+        "channel": "UPI",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9998744344855198
+    },
+    {
+      "input": {
+        "amount": 450.0,
+        "channel": "Card",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.0005700868449509705
+    },
+    {
+      "input": {
+        "amount": 450.0,
+        "channel": "Card",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999782092296307
+    },
+    {
+      "input": {
+        "amount": 450.0,
+        "channel": "Net banking",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.00013026522640018987
+    },
+    {
+      "input": {
+        "amount": 450.0,
+        "channel": "Net banking",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999046009138466
+    },
+    {
+      "input": {
+        "amount": 450.0,
+        "channel": "Wallet",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.00039346915496883043
+    },
+    {
+      "input": {
+        "amount": 450.0,
+        "channel": "Wallet",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999684226702878
+    },
+    {
+      "input": {
+        "amount": 4800.0,
+        "channel": "UPI",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.0002458371911445398
+    },
+    {
+      "input": {
+        "amount": 4800.0,
+        "channel": "UPI",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999494531138579
+    },
+    {
+      "input": {
+        "amount": 4800.0,
+        "channel": "Card",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.0014150840438947585
+    },
+    {
+      "input": {
+        "amount": 4800.0,
+        "channel": "Card",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999912285845443
+    },
+    {
+      "input": {
+        "amount": 4800.0,
+        "channel": "Net banking",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.00032355870607518204
+    },
+    {
+      "input": {
+        "amount": 4800.0,
+        "channel": "Net banking",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999615974190988
+    },
+    {
+      "input": {
+        "amount": 4800.0,
+        "channel": "Wallet",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.0009769350236057178
+    },
+    {
+      "input": {
+        "amount": 4800.0,
+        "channel": "Wallet",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999872891369703
+    },
+    {
+      "input": {
+        "amount": 26000.0,
+        "channel": "UPI",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.020319486078642784
+    },
+    {
+      "input": {
+        "amount": 26000.0,
+        "channel": "UPI",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999994007028482
+    },
+    {
+      "input": {
+        "amount": 26000.0,
+        "channel": "Card",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.10676674476175502
+    },
+    {
+      "input": {
+        "amount": 26000.0,
+        "channel": "Card",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999998960080886
+    },
+    {
+      "input": {
+        "amount": 26000.0,
+        "channel": "Net banking",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.026574805861754477
+    },
+    {
+      "input": {
+        "amount": 26000.0,
+        "channel": "Net banking",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999995446943833
+    },
+    {
+      "input": {
+        "amount": 26000.0,
+        "channel": "Wallet",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.07619789882698139
+    },
+    {
+      "input": {
+        "amount": 26000.0,
+        "channel": "Wallet",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999998493023056
+    },
+    {
+      "input": {
+        "amount": 61000.0,
+        "channel": "UPI",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.9691177223032258
+    },
+    {
+      "input": {
+        "amount": 61000.0,
+        "channel": "UPI",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999999996039013
+    },
+    {
+      "input": {
+        "amount": 61000.0,
+        "channel": "Card",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.9945008561396157
+    },
+    {
+      "input": {
+        "amount": 61000.0,
+        "channel": "Card",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999999999312676
+    },
+    {
+      "input": {
+        "amount": 61000.0,
+        "channel": "Net banking",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.9763623369261181
+    },
+    {
+      "input": {
+        "amount": 61000.0,
+        "channel": "Net banking",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999999996990709
+    },
+    {
+      "input": {
+        "amount": 61000.0,
+        "channel": "Wallet",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.9920506642540868
+    },
+    {
+      "input": {
+        "amount": 61000.0,
+        "channel": "Wallet",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 0.9999999999003981
+    },
+    {
+      "input": {
+        "amount": 135000.0,
+        "channel": "UPI",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.9999999939710082
+    },
+    {
+      "input": {
+        "amount": 135000.0,
+        "channel": "UPI",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 1.0
+    },
+    {
+      "input": {
+        "amount": 135000.0,
+        "channel": "Card",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.9999999989538311
+    },
+    {
+      "input": {
+        "amount": 135000.0,
+        "channel": "Card",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 1.0
+    },
+    {
+      "input": {
+        "amount": 135000.0,
+        "channel": "Net banking",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.9999999954195786
+    },
+    {
+      "input": {
+        "amount": 135000.0,
+        "channel": "Net banking",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 1.0
+    },
+    {
+      "input": {
+        "amount": 135000.0,
+        "channel": "Wallet",
+        "attempt_count": 1,
+        "is_new_device": false,
+        "location_change": false,
+        "hour_of_day": 14
+      },
+      "fraud_probability": 0.9999999984839663
+    },
+    {
+      "input": {
+        "amount": 135000.0,
+        "channel": "Wallet",
+        "attempt_count": 4,
+        "is_new_device": true,
+        "location_change": true,
+        "hour_of_day": 2
+      },
+      "fraud_probability": 1.0
+    }
+  ]
+}

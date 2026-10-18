@@ -2,6 +2,7 @@ import { transactions as mockTransactions } from "../mocks/data";
 import { apiRequest, USE_MOCKS } from "./apiClient";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
 import type { Transaction } from "../types";
+import { riskBandForDecision } from "../../supabase/functions/_shared/fraudModel.ts";
 
 export async function listTransactions(): Promise<Transaction[]> {
   if (isSupabaseConfigured && supabase) {
@@ -24,8 +25,8 @@ export async function listTransactions(): Promise<Transaction[]> {
         score: row.score,
         decision: row.decision,
         signals: Array.isArray(row.signals) ? row.signals : [],
-        modelVersion: row.model_version || "fraud-v1.8.2",
-        latency: row.latency || 18,
+        modelVersion: row.model_version || "unrecorded",
+        latency: row.latency ?? 0,
         explanation: row.explanation || "",
         caseId: row.case_id || undefined,
       }));
@@ -85,8 +86,8 @@ export async function getTransaction(id: string): Promise<Transaction | undefine
         score: data.score,
         decision: data.decision,
         signals: Array.isArray(data.signals) ? data.signals : [],
-        modelVersion: data.model_version || "fraud-v1.8.2",
-        latency: data.latency || 18,
+        modelVersion: data.model_version || "unrecorded",
+        latency: data.latency ?? 0,
         explanation: data.explanation || "",
         caseId: data.case_id || undefined,
       };
@@ -127,7 +128,10 @@ export async function scoreTransaction(payload: Record<string, unknown>) {
         modelVersion: data.model_version,
         latency: data.inference_latency_ms,
         explanation: `ML Pipeline scored risk ${data.risk_score}/100. Recommended action: ${data.recommended_action}.`,
-        attributions: data.local_attributions,
+        attributions: (data.local_attributions || []).map((a: { name: string; contribution: number }) => ({
+          name: a.name,
+          value: a.contribution,
+        })),
       };
     }
   } catch {
@@ -143,7 +147,7 @@ export async function scoreTransaction(payload: Record<string, unknown>) {
     attemptCount: Number(payload.attemptCount) || 1,
     isNewDevice: Boolean(payload.isNewDevice),
     locationChange: Boolean(payload.locationChange),
-    hourOfDay: Number(payload.hourOfDay) || 14,
+    hourOfDay: payload.hourOfDay === undefined ? new Date().getHours() : Number(payload.hourOfDay),
   });
 
   return {
@@ -151,7 +155,7 @@ export async function scoreTransaction(payload: Record<string, unknown>) {
     score: res.score,
     probability: res.probability,
     decision: res.decision,
-    riskLevel: res.score >= 75 ? "High" : res.score >= 45 ? "Medium" : "Low",
+    riskLevel: riskBandForDecision(res.decision),
     signals: res.signals,
     modelVersion: `fraud-v${res.version}`,
     latency: res.latencyMs,
