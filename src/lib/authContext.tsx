@@ -71,8 +71,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchProfile = async (userId: string, email?: string, userObj?: User | null) => {
     if (!supabase) return;
     
-    // Check if user object has admin role in app_metadata or user_metadata
-    const metaRole = (userObj?.app_metadata?.role || userObj?.user_metadata?.role) as UserRole | undefined;
+    // Only app_metadata is server-controlled; user_metadata can be edited by the user themselves
+    const metaRole = userObj?.app_metadata?.role as UserRole | undefined;
 
     try {
       const { data, error } = await supabase
@@ -215,8 +215,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         id: data.user.id,
         email: data.user.email,
         display_name: displayName,
-        role: "fraud_analyst",
-        status: "active",
+        // role and status come from column defaults; RLS and tr_protect_profile_role reject anything else
         organization: onboarding?.organization,
         country: onboarding?.country,
         use_case: onboarding?.intendedUseCase,

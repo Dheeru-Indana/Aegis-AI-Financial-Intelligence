@@ -1,17 +1,17 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { MODEL_VERSION, scoreWithModel } from "../_shared/fraudModel.ts";
+import { authorizeScoringProfile, validateScoringPayload } from "../_shared/scoringGuards.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-interface RequestPayload {
-  amount?: number;
-  customer?: string;
-  channel?: "UPI" | "Card" | "Net banking" | "Wallet";
-  attemptCount?: number;
-}
+const ML_SERVICE_TIMEOUT_MS = 2000;
+
+const json = (body: unknown, status: number) =>
+  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -19,23 +19,18 @@ serve(async (req) => {
   }
 
   try {
+    const startedAt = performance.now();
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!supabaseUrl || !supabaseServiceKey) {
-      return new Response(
-        JSON.stringify({ error: "Server configuration error: missing database credentials" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ error: "Server configuration error: missing database credentials" }, 500);
     }
 
     // 1. Validate caller's JWT from Authorization header
     const authHeader = req.headers.get("Authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return new Response(
-        JSON.stringify({ error: "Authentication required: missing or invalid Bearer token" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ error: "Authentication required: missing or invalid Bearer token" }, 401);
     }
 
     const token = authHeader.replace("Bearer ", "").trim();
@@ -47,147 +42,100 @@ serve(async (req) => {
 
     const { data: { user }, error: authError } = await callerClient.auth.getUser(token);
     if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized: session invalid or expired" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ error: "Unauthorized: session invalid or expired" }, 401);
     }
 
-    // 2. Verify caller role from public.profiles
+    // 2. Verify caller role and account status from public.profiles
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
-    const { data: profile, error: profileError } = await serviceClient
+    const { data: profileRow, error: profileError } = await serviceClient
       .from("profiles")
       .select("role, status")
       .eq("id", user.id)
       .maybeSingle();
 
-    if (profileError || !profile) {
-      return new Response(
-        JSON.stringify({ error: "Access denied: user profile not found" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const access = authorizeScoringProfile(profileError ? null : profileRow);
+    if (!access.ok) {
+      return json({ error: access.error }, access.status);
     }
-
-    // Strict role check: only administrator and fraud_analyst can execute scoring
-    const allowedRoles = ["administrator", "fraud_analyst"];
-    if (!allowedRoles.includes(profile.role)) {
-      return new Response(
-        JSON.stringify({
-          error: "Forbidden: insufficient permissions. Requires administrator or fraud_analyst role.",
-        }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const profile = access.value;
 
     // 3. Validate request payload
-    let body: RequestPayload;
+    let body: unknown;
     try {
       body = await req.json();
     } catch {
-      return new Response(
-        JSON.stringify({ error: "Invalid JSON request body" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ error: "Invalid JSON request body" }, 400);
     }
 
-    const { amount, customer, channel = "UPI", attemptCount = 1 } = body;
-
-    if (typeof amount !== "number" || amount <= 0 || !Number.isFinite(amount)) {
-      return new Response(
-        JSON.stringify({ error: "Validation error: amount must be a positive number" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const payload = validateScoringPayload(body);
+    if (!payload.ok) {
+      return json({ error: payload.error }, payload.status);
     }
+    const { amount, customer, channel, attemptCount } = payload.value;
 
-    if (!customer || typeof customer !== "string" || customer.trim().length === 0) {
-      return new Response(
-        JSON.stringify({ error: "Validation error: customer reference is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const validChannels = ["UPI", "Card", "Net banking", "Wallet"];
-    if (!validChannels.includes(channel)) {
-      return new Response(
-        JSON.stringify({ error: "Validation error: channel must be UPI, Card, Net banking, or Wallet" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // 4. ML Model Scoring (FastAPI Python microservice or calibrated logistic regression)
+    // 4. ML scoring: FastAPI model service, else the in-process port of the same pipeline
     const pythonApiUrl = Deno.env.get("PYTHON_MODEL_SERVICE_URL") || "http://localhost:8000";
-    let finalScore = 10;
-    let decision: "ALLOW" | "VERIFY" | "FLAG" = "ALLOW";
-    let riskLevel: "Low" | "Medium" | "High" = "Low";
+    let finalScore: number;
+    let decision: "ALLOW" | "VERIFY" | "FLAG";
+    let riskLevel: "Low" | "Medium" | "High";
     let signals: string[] = [];
-    let modelVersion = "fraud-v2.0.0-logistic";
-    let explanation = "";
+    let modelVersion = MODEL_VERSION;
+    let explanation: string;
 
     try {
       const mlResponse = await fetch(`${pythonApiUrl}/api/score`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount,
-          customer: customer.trim(),
-          channel,
-          attempt_count: attemptCount,
-        }),
+        body: JSON.stringify({ amount, customer, channel, attempt_count: attemptCount }),
+        signal: AbortSignal.timeout(ML_SERVICE_TIMEOUT_MS),
       });
 
-      if (mlResponse.ok) {
-        const mlData = await mlResponse.json();
-        finalScore = mlData.risk_score;
-        decision = mlData.recommended_action;
-        riskLevel = mlData.risk_band;
-        signals = mlData.reason_codes || [];
-        modelVersion = mlData.model_version || modelVersion;
-        explanation = `Python FastAPI ML scored probability ${mlData.fraud_probability} (${finalScore}/100). Recommended: ${decision}.`;
-      } else {
+      if (!mlResponse.ok) {
         throw new Error(`ML service returned ${mlResponse.status}`);
       }
+      const mlData = await mlResponse.json();
+      finalScore = mlData.risk_score;
+      decision = mlData.recommended_action;
+      riskLevel = mlData.risk_band;
+      signals = mlData.reason_codes || [];
+      modelVersion = mlData.model_version || modelVersion;
+      explanation = `Python FastAPI ML scored probability ${mlData.fraud_probability} (${finalScore}/100). Recommended: ${decision}.`;
     } catch {
-      // Synchronized in-memory Logistic Regression calculation (ml/features.py weights)
-      const normAmount = Math.min(10.0, Math.max(0.01, amount / 25000.0));
-      const normVelocity = Math.min(10.0, Math.max(0.0, attemptCount - 1));
-      const z = -4.9801 + 4.2045 * normAmount + 1.609 * normVelocity;
-      const proba = 1.0 / (1.0 + Math.exp(-z));
-      finalScore = Math.min(99, Math.max(1, Math.round(proba * 100)));
-      decision = proba >= 0.83 ? "FLAG" : proba >= 0.40 ? "VERIFY" : "ALLOW";
-      riskLevel = finalScore >= 75 ? "High" : finalScore >= 45 ? "Medium" : "Low";
-      if (normAmount > 2.0) signals.push("Amount anomaly");
-      if (normVelocity >= 3.0) signals.push("Velocity spike");
+      const result = scoreWithModel({ amount, channel, attemptCount });
+      finalScore = result.riskScore;
+      decision = result.decision;
+      riskLevel = result.riskBand;
+      if (amount / 25000 > 2.0) signals.push("Amount anomaly");
+      if (attemptCount - 1 >= 3) signals.push("Velocity spike");
       if (signals.length === 0) signals.push("Standard profile");
-      explanation = `Trained Logistic Regression pipeline scored ${finalScore}/100. Decision: ${decision}. Caller: ${user.email || profile.role}.`;
+      explanation = `Logistic regression ${MODEL_VERSION} scored ${finalScore}/100 (in-process fallback). Decision: ${decision}.`;
     }
 
-    const txId = `TXN-${Math.floor(20500 + Math.random() * 50000)}`;
+    const txId = `TXN-${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
 
     // 5. Store evaluated transaction with service-role security
     const { error: dbError } = await serviceClient.from("transactions").insert({
       id: txId,
       amount,
       channel,
-      customer_reference: customer.trim(),
+      customer_reference: customer,
       score: finalScore,
       risk_level: riskLevel,
       decision,
       scoring_status: "SCORED",
       signals: signals.length > 0 ? signals : ["Standard profile"],
       model_version: modelVersion,
+      latency_ms: Math.round(performance.now() - startedAt),
       explanation,
     });
 
     if (dbError) {
-      return new Response(
-        JSON.stringify({ error: "Database operation failed to record scored transaction" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ error: "Database operation failed to record scored transaction" }, 500);
     }
 
     // 6. Record tamper-proof audit trail for scoring invocation
-    await serviceClient.from("audit_logs").insert({
-      id: `AUD-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+    const { error: auditError } = await serviceClient.from("audit_logs").insert({
+      id: `AUD-${crypto.randomUUID()}`,
       timestamp: new Date().toISOString(),
       actor: user.email || user.id,
       actor_id: user.id,
@@ -197,24 +145,25 @@ serve(async (req) => {
       resource_id: txId,
       result: "Success",
       details: `Scored amount ${amount} ${channel} for ${customer}. Decision: ${decision} (${finalScore}/100)`,
-      metadata: { score: finalScore, decision, signals },
+      metadata: { score: finalScore, decision, signals, model_version: modelVersion },
     });
+    if (auditError) {
+      console.error(`Audit log write failed for ${txId}: ${auditError.message}`);
+    }
 
-    return new Response(
-      JSON.stringify({
+    return json(
+      {
         id: txId,
         score: finalScore,
         decision,
         riskLevel,
         signals: signals.length > 0 ? signals : ["Standard profile"],
+        modelVersion,
         status: "SCORED",
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      },
+      200
     );
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: "Internal server error occurred processing score request" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+  } catch {
+    return json({ error: "Internal server error occurred processing score request" }, 500);
   }
 });

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Upload, FileText, CheckCircle2, AlertTriangle, X, Shield, ArrowRight } from "lucide-react";
+import Papa from "papaparse";
 import type { Transaction, RiskRule } from "../types";
 import { parseAndIngestCsv, type IngestionResult } from "../services/ingestionService";
 
@@ -33,8 +34,8 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
       toast("Please select a valid CSV file");
       return;
     }
-    if (f.size > 5 * 1024 * 1024) {
-      toast("File size exceeds 5MB limit");
+    if (f.size >= 5 * 1024 * 1024) {
+      toast("File size exceeds 5 MB limit");
       return;
     }
     setFile(f);
@@ -44,11 +45,12 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
     reader.onload = (e) => {
       const text = e.target?.result as string;
       if (text) {
-        const lines = text.split("\n").filter((l) => l.trim()).slice(0, 6);
-        const rows = lines.map((l) => l.split(",").map((c) => c.trim().replace(/^"|"$/g, "")));
-        setCsvPreview(rows);
+        // Use PapaParse for preview so quoted/comma-containing cells render correctly
+        const parsed = Papa.parse<string[]>(text, { preview: 6 });
+        setCsvPreview(parsed.data as string[][]);
       }
     };
+    reader.onerror = () => toast("Failed to read file");
     reader.readAsText(f);
   };
 
@@ -73,7 +75,13 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
         } finally {
           setLoading(false);
         }
+      } else {
+        setLoading(false);
       }
+    };
+    reader.onerror = () => {
+      toast("Failed to read file for import");
+      setLoading(false);
     };
     reader.readAsText(file);
   };

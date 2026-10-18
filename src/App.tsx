@@ -392,7 +392,7 @@ function App() {
           decision: newRow.decision,
           signals: Array.isArray(newRow.signals) ? newRow.signals : [],
           modelVersion: newRow.model_version || "fraud-v2.0.0",
-          latency: newRow.latency || 18,
+          latency: newRow.latency ?? 0,
           explanation: newRow.explanation || "",
           caseId: newRow.case_id || undefined,
           provenance: newRow.provenance || "live",
@@ -523,6 +523,31 @@ function App() {
           toast("Signed in successfully");
         }}
       />
+    );
+  }
+
+  // RLS gives suspended or inactive accounts no data access; say so instead of rendering an empty app
+  if (profile.status !== "active") {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "grid",
+          placeItems: "center",
+          background: "#0b1020",
+          fontFamily: "Inter, sans-serif",
+        }}
+      >
+        <div style={{ textAlign: "center", maxWidth: "360px", padding: "0 16px" }}>
+          <div style={{ fontSize: "14px", fontWeight: 600, color: "#f1f5f9" }}>Account {profile.status}</div>
+          <div style={{ fontSize: "12px", color: "#94a3b8", margin: "6px 0 14px" }}>
+            An administrator must reactivate this account before it can access AegisAI.
+          </div>
+          <button className="btn" onClick={() => signOut()}>
+            Sign out
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -831,9 +856,10 @@ function App() {
                         decision: scored.decision as any,
                         signals: scored.signals || ["Standard profile"],
                         modelVersion: scored.modelVersion || "fraud-v2.0.0-logistic",
-                        latency: scored.latency || 18,
+                        latency: scored.latency ?? 0,
                         explanation: scored.explanation || "Transaction evaluated by ML model.",
                         provenance: "test",
+                        attributions: scored.attributions,
                       };
 
                       try {
@@ -1213,7 +1239,7 @@ function Overview({
     ? `₹${(exposureSum / 100000).toFixed(2)}L`
     : `₹${exposureSum.toLocaleString()}`;
   const avgLatency = totalCount > 0
-    ? Math.round(txns.reduce((acc, curr) => acc + (curr.latency || 18), 0) / totalCount) + " ms"
+    ? Math.round(txns.reduce((acc, curr) => acc + (curr.latency ?? 0), 0) / totalCount) + " ms"
     : "18 ms";
 
   const dist = useMemo(() => {
@@ -1793,6 +1819,17 @@ function Cases({
   );
 }
 
+const FEATURE_LABELS: Record<string, string> = {
+  amount_norm: "Amount",
+  velocity_norm: "Attempt velocity",
+  is_new_device: "New device",
+  location_change: "Location change",
+  night_hour_flag: "Night-time",
+  "channel_Net banking": "Net banking",
+  channel_UPI: "UPI channel",
+  channel_Wallet: "Wallet channel",
+};
+
 function Explain({
   txns,
   selected,
@@ -1808,13 +1845,9 @@ function Explain({
 }) {
   const [chosen, setChosen] = useState(selected.id);
   const tx = txns.find((t) => t.id === chosen) || selected;
-  const attrib = [
-    { name: "V14", value: 0.31 },
-    { name: "V12", value: 0.24 },
-    { name: "V10", value: 0.18 },
-    { name: "V4", value: -0.12 },
-    { name: "V17", value: -0.08 },
-  ];
+  // Only transactions scored by the model in this session carry per-feature contributions
+  const attrib = (tx.attributions ?? []).slice(0, 6);
+  const maxAbs = Math.max(1e-9, ...attrib.map((a) => Math.abs(a.value)));
   return (
     <>
       <PageHeading
@@ -1878,18 +1911,21 @@ function Explain({
           </div>
           <div className="meta-row">
             <span>Explanation method</span>
-            <strong>{tx.id === "TXN-20481" ? "SHAP Feature Attribution" : "Rule + Feature Summary"}</strong>
+            <strong>{attrib.length ? "Logistic regression contributions" : "Rule + signal summary"}</strong>
           </div>
           <div className="meta-row">
-            <span>Explanation available</span>
-            <Badge tone="green">Verified</Badge>
+            <span>Feature attributions</span>
+            <Badge tone={attrib.length ? "green" : "blue"}>{attrib.length ? "Recorded" : "Not recorded"}</Badge>
           </div>
         </Card>
       </div>
 
       <div className="charts-grid explain-charts">
         <Card>
-          <SectionTitle title="Feature attribution" sub="Contribution values from trained fraud model." />
+          <SectionTitle
+            title="Feature attribution"
+            sub={attrib.length ? `Log-odds contributions from ${tx.modelVersion}.` : "No per-feature attributions for this transaction."}
+          />
           <div className="attribution-legend">
             <span>
               <i className="legend-red" />
@@ -1901,15 +1937,21 @@ function Explain({
             </span>
           </div>
           <div className="attribution-list">
+            {attrib.length === 0 && (
+              <div className="empty">
+                Demo and imported records store only the score and signals. Transactions scored by the model in this
+                session include per-feature contributions.
+              </div>
+            )}
             {attrib.map((a) => (
-              <div className="attrib-row" key={a.name}>
-                <span>{a.name}</span>
+              <div className="attrib-row" key={a.name} style={{ gridTemplateColumns: "104px minmax(80px,1fr) 48px" }}>
+                <span>{FEATURE_LABELS[a.name] ?? a.name}</span>
                 <div className="attrib-track">
                   <i
                     className={a.value > 0 ? "positive-bar" : "negative-bar"}
                     style={{
-                      width: `${Math.abs(a.value) * 210}%`,
-                      marginLeft: a.value < 0 ? `${50 - Math.abs(a.value) * 210}%` : `50%`,
+                      width: `${(Math.abs(a.value) / maxAbs) * 50}%`,
+                      marginLeft: a.value < 0 ? `${50 - (Math.abs(a.value) / maxAbs) * 50}%` : `50%`,
                     }}
                   />
                 </div>
@@ -1920,7 +1962,10 @@ function Explain({
               </div>
             ))}
           </div>
-          <p className="muted-note">PCA features V14, V12, V10, V4 and V17 represent principal components from cardholder transactions.</p>
+          <p className="muted-note">
+            Contribution = model weight × standardized feature value; channel effects are relative to Card. The model was
+            trained on synthetic data.
+          </p>
         </Card>
         <Card>
           <SectionTitle title="Why this transaction was flagged?" />

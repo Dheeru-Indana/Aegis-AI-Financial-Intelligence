@@ -10,7 +10,7 @@
 -- 3. Canonical columns support both historical and enterprise frontends:
 --    - customer_reference TEXT NOT NULL
 --    - customer TEXT GENERATED ALWAYS AS (customer_reference) STORED
---    - latency_ms INTEGER NOT NULL DEFAULT 18
+--    - latency_ms INTEGER NOT NULL DEFAULT 0
 --    - latency INTEGER GENERATED ALWAYS AS (latency_ms) STORED
 -- 4. Monetary columns are NUMERIC(15, 2) with explicit currency codes.
 -- 5. Strict Row-Level Security (RLS) is enabled on EVERY application table.
@@ -118,7 +118,8 @@ STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-  SELECT role FROM public.profiles WHERE id = auth.uid();
+  -- NULL for suspended/inactive accounts, so role-based policies lock them out too
+  SELECT role FROM public.profiles WHERE id = auth.uid() AND status = 'active';
 $$;
 
 -- Trigger to prevent unauthorized self-elevation of user roles
@@ -129,12 +130,14 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
-  IF NEW.role <> OLD.role THEN
-    IF NOT EXISTS (
-      SELECT 1 FROM public.profiles 
-      WHERE id = auth.uid() AND role = 'administrator'
-    ) THEN
-      RAISE EXCEPTION 'Security violation: Only administrators can modify user roles';
+  -- auth.uid() is NULL for the SQL editor, migrations and the service role, which are trusted
+  IF auth.uid() IS NOT NULL AND public.current_user_role() IS DISTINCT FROM 'administrator' THEN
+    IF TG_OP = 'INSERT' THEN
+      IF NEW.role IS DISTINCT FROM 'fraud_analyst' OR NEW.status IS DISTINCT FROM 'active' THEN
+        RAISE EXCEPTION 'Security violation: new profiles must start as an active fraud_analyst';
+      END IF;
+    ELSIF NEW.role IS DISTINCT FROM OLD.role OR NEW.status IS DISTINCT FROM OLD.status THEN
+      RAISE EXCEPTION 'Security violation: Only administrators can modify user roles or account status';
     END IF;
   END IF;
   NEW.updated_at = timezone('utc'::text, now());
@@ -144,7 +147,7 @@ $$;
 
 DROP TRIGGER IF EXISTS tr_protect_profile_role ON public.profiles;
 CREATE TRIGGER tr_protect_profile_role
-BEFORE UPDATE ON public.profiles
+BEFORE INSERT OR UPDATE ON public.profiles
 FOR EACH ROW EXECUTE FUNCTION public.check_profile_role_update();
 
 -- ------------------------------------------------------------------------------
@@ -166,8 +169,8 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   risk_level TEXT NOT NULL CHECK (risk_level IN ('Low', 'Medium', 'High')),
   decision public.decision_type NOT NULL,
   scoring_status TEXT NOT NULL DEFAULT 'SCORED',
-  model_version TEXT NOT NULL DEFAULT 'fraud-v1.8.2',
-  latency_ms INTEGER NOT NULL DEFAULT 18,
+  model_version TEXT NOT NULL DEFAULT 'unrecorded',
+  latency_ms INTEGER NOT NULL DEFAULT 0,
   -- Dual-compatibility generated column for latency
   latency INTEGER GENERATED ALWAYS AS (latency_ms) STORED,
   signals TEXT[] NOT NULL DEFAULT '{}',
@@ -438,9 +441,9 @@ ALTER TABLE public.user_feedback ENABLE ROW LEVEL SECURITY;
 -- ------------------------------------------------------------------------------
 -- PROFILES POLICIES
 -- ------------------------------------------------------------------------------
-CREATE POLICY "Profiles readable by authenticated users"
+CREATE POLICY "Profiles readable by owner and administrators"
   ON public.profiles FOR SELECT TO authenticated
-  USING (true);
+  USING (auth.uid() = id OR public.current_user_role() = 'administrator');
 
 CREATE POLICY "Users can edit own profile details"
   ON public.profiles FOR UPDATE TO authenticated
@@ -449,14 +452,14 @@ CREATE POLICY "Users can edit own profile details"
 
 CREATE POLICY "Users can insert own initial profile"
   ON public.profiles FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() = id);
+  WITH CHECK (auth.uid() = id AND role = 'fraud_analyst' AND status = 'active');
 
 -- ------------------------------------------------------------------------------
 -- TRANSACTIONS POLICIES
 -- ------------------------------------------------------------------------------
-CREATE POLICY "Transactions viewable by authenticated users"
+CREATE POLICY "Transactions viewable by active staff"
   ON public.transactions FOR SELECT TO authenticated
-  USING (true);
+  USING (public.current_user_role() IS NOT NULL);
 
 CREATE POLICY "Transactions insertable by analysts and admins"
   ON public.transactions FOR INSERT TO authenticated

@@ -23,6 +23,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO authenticate
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO authenticated, service_role;
 
 -- 2. Ensure trigger allows SQL Editor updates
+-- Same definition as migrations/20261018000000_security_hardening.sql, so running this
+-- script never weakens the role/status protection.
 CREATE OR REPLACE FUNCTION public.check_profile_role_update()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -30,12 +32,14 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
-  IF NEW.role <> OLD.role THEN
-    IF auth.uid() IS NOT NULL AND NOT EXISTS (
-      SELECT 1 FROM public.profiles 
-      WHERE id = auth.uid() AND role = 'administrator'
-    ) THEN
-      RAISE EXCEPTION 'Security violation: Only administrators can modify user roles';
+  -- auth.uid() is NULL for the SQL editor, migrations and the service role, which are trusted
+  IF auth.uid() IS NOT NULL AND public.current_user_role() IS DISTINCT FROM 'administrator' THEN
+    IF TG_OP = 'INSERT' THEN
+      IF NEW.role IS DISTINCT FROM 'fraud_analyst' OR NEW.status IS DISTINCT FROM 'active' THEN
+        RAISE EXCEPTION 'Security violation: new profiles must start as an active fraud_analyst';
+      END IF;
+    ELSIF NEW.role IS DISTINCT FROM OLD.role OR NEW.status IS DISTINCT FROM OLD.status THEN
+      RAISE EXCEPTION 'Security violation: Only administrators can modify user roles or account status';
     END IF;
   END IF;
   NEW.updated_at = timezone('utc'::text, now());
@@ -66,6 +70,7 @@ BEGIN
     VALUES (v_user_id, v_email, 'SecOps Admin', 'administrator', 'active', now())
     ON CONFLICT (id) DO UPDATE
     SET role = 'administrator',
+        status = 'active',
         updated_at = now();
 
     -- Insert audit log

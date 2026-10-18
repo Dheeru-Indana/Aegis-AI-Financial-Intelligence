@@ -25,8 +25,59 @@
     "channel_Wallet": -0.371
   },
   "optimal_threshold": 0.83,
-  "training_timestamp": "2026-10-18T08:18:40.882269+00:00",
-  "training_duration_seconds": 0.27,
+  "probability_calibration": "uncalibrated: class_weight='balanced' inflates probabilities relative to the training fraud rate; treat as a ranking score with the validated threshold",
+  "inference_parameters": {
+    "numeric_features": [
+      "amount_norm",
+      "velocity_norm",
+      "is_new_device",
+      "location_change",
+      "night_hour_flag"
+    ],
+    "numeric_means": [
+      0.25917005691666667,
+      0.23666666666666666,
+      0.104375,
+      0.0725,
+      0.017916666666666668
+    ],
+    "numeric_scales": [
+      0.8039324548694513,
+      0.68604340646606,
+      0.30574639715784063,
+      0.2593139988508141,
+      0.13264863256823353
+    ],
+    "channel_categories": [
+      "Card",
+      "Net banking",
+      "UPI",
+      "Wallet"
+    ],
+    "encoded_features": [
+      "amount_norm",
+      "velocity_norm",
+      "is_new_device",
+      "location_change",
+      "night_hour_flag",
+      "channel_Net banking",
+      "channel_UPI",
+      "channel_Wallet"
+    ],
+    "coefficients": [
+      4.204480484040564,
+      1.6090470639890824,
+      1.0110877387115778,
+      0.8870418515828737,
+      0.5888639210576471,
+      -1.4766561093346784,
+      -1.7514449298848855,
+      -0.37096273317926237
+    ],
+    "intercept": -4.980077393444688
+  },
+  "training_timestamp": "2026-10-18T14:42:45.159585+00:00",
+  "training_duration_seconds": 0.37,
   "artifact_file": "fraud-v2.0.0-logistic.joblib",
   "artifact_size_kb": 3.8,
   "artifact_sha256": "84c8b6ed92e702d6b289a46e4c939068f53dcedbe9c8bff7e86b7ab729d2998e",

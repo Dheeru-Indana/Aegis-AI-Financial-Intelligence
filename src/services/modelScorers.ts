@@ -1,8 +1,14 @@
-import type { Decision, RiskRule, Transaction } from "../types";
+import type { Decision, RiskRule } from "../types";
+import {
+  FLAG_THRESHOLD,
+  MODEL_VERSION,
+  extractFeatures,
+  scoreWithModel,
+} from "../../supabase/functions/_shared/fraudModel.ts";
 
 export interface ScorerOutput {
   scorerId: string;
-  scorerType: "RuleBased" | "TrainedML" | "Simulation";
+  scorerType: "RuleBased" | "TrainedML" | "Ensemble" | "Simulation";
   version: string;
   score: number;
   probability: number;
@@ -19,6 +25,7 @@ export interface IScorer {
     channel: string;
     attemptCount?: number;
     isNewDevice?: boolean;
+    locationChange?: boolean;
     hourOfDay?: number;
   }): ScorerOutput;
 }
@@ -38,30 +45,32 @@ export class RuleBasedScorer implements IScorer {
     const start = performance.now();
     let score = 5;
     const signals: string[] = [];
+    // Points each triggered rule added, reported as a fraction of the 0-100 scale
+    const contributions: { name: string; value: number }[] = [];
+    const apply = (points: number, signal: string, name: string) => {
+      score += points;
+      signals.push(signal);
+      contributions.push({ name, value: points / 100 });
+    };
 
     if (tx.amount > 100000) {
-      score += 40;
-      signals.push("RULE: High Transaction Amount (> ₹1L)");
+      apply(40, "RULE: High Transaction Amount (> ₹1L)", "Amount > ₹1L");
     } else if (tx.amount > 50000) {
-      score += 20;
-      signals.push("RULE: Elevated Amount (> ₹50k)");
+      apply(20, "RULE: Elevated Amount (> ₹50k)", "Amount > ₹50k");
     }
 
     if ((tx.attemptCount ?? 1) >= 4) {
-      score += 35;
-      signals.push("RULE: Velocity Spike (>= 4 attempts)");
+      apply(35, "RULE: Velocity Spike (>= 4 attempts)", "Attempts >= 4");
     }
 
     if (tx.isNewDevice) {
-      score += 15;
-      signals.push("RULE: Unrecognized Hardware Signature");
+      apply(15, "RULE: Unrecognized Hardware Signature", "New device");
     }
 
     // Dynamic rule evaluations
     for (const r of this.rules.filter((r) => r.enabled)) {
       if (r.feature === "amount" && r.operator === ">" && tx.amount > r.threshold) {
-        score += r.impact;
-        signals.push(`RULE: ${r.name}`);
+        apply(r.impact, `RULE: ${r.name}`, r.name);
       }
     }
 
@@ -80,33 +89,20 @@ export class RuleBasedScorer implements IScorer {
       explanation: signals.length
         ? `Rule engine triggered ${signals.length} operational constraints.`
         : "Standard transaction parameters within default thresholds.",
-      attributions: [
-        { name: "Amount Factor", value: tx.amount > 50000 ? 0.35 : 0.05 },
-        { name: "Attempt Velocity", value: (tx.attemptCount ?? 1) >= 4 ? 0.4 : 0.05 },
-      ],
+      attributions: contributions,
     };
   }
 }
 
 /**
- * 2. TrainedMLScorer (Lightweight Logistic Regression with Class Weights)
- * Pre-trained on imbalanced cardholder fraud benchmark (ULB Credit Card Fraud dataset).
- * Coefficients represent optimized log-odds from normalized features.
+ * 2. TrainedMLScorer
+ * Browser-side copy of the trained logistic regression pipeline (fraud-v2.0.0-logistic).
+ * Trained on synthetic demo data by ml/train.py; see supabase/functions/_shared/fraudModel.ts.
  */
 export class TrainedMLScorer implements IScorer {
   scorerId = "ml-logistic-v2.0.0";
   scorerType = "TrainedML" as const;
   version = "2.0.0";
-
-  // Calibrated weights from Scikit-Learn Logistic Regression training (ml/train.py)
-  private weights = {
-    amountNorm: 4.2045,
-    velocityNorm: 1.609,
-    isNewDevice: 1.0111,
-    locationChange: 0.887,
-    nightHourFlag: 0.5889,
-    intercept: -4.9801, // Imbalanced baseline prior log-odds
-  };
 
   score(tx: {
     amount: number;
@@ -117,63 +113,47 @@ export class TrainedMLScorer implements IScorer {
     hourOfDay?: number;
   }): ScorerOutput {
     const start = performance.now();
-
-    // Min-Max feature normalization conforming to ml/features.py
-    const normAmount = Math.min(10.0, Math.max(0.01, tx.amount / 25000.0));
-    const normVelocity = Math.min(10.0, Math.max(0.0, (tx.attemptCount ?? 1) - 1));
-    const deviceFlag = tx.isNewDevice ? 1.0 : 0.0;
-    const locFlag = tx.locationChange ? 1.0 : 0.0;
-    const hour = tx.hourOfDay ?? 14;
-    const nightFlag = (hour >= 23 || hour < 5) ? 1.0 : 0.0;
-
-    // Logit linear combination: z = w0 + sum(w_i * x_i)
-    const z =
-      this.weights.intercept +
-      this.weights.amountNorm * normAmount +
-      this.weights.velocityNorm * normVelocity +
-      this.weights.isNewDevice * deviceFlag +
-      this.weights.locationChange * locFlag +
-      this.weights.nightHourFlag * nightFlag;
-
-    // Sigmoid activation: p = 1 / (1 + e^-z)
-    const probability = 1.0 / (1.0 + Math.exp(-z));
-    const score = Math.min(99, Math.max(1, Math.round(probability * 100)));
-    // Optimal threshold calibrated on validation set (0.83)
-    const decision: Decision = probability >= 0.83 ? "FLAG" : probability >= 0.40 ? "VERIFY" : "ALLOW";
+    const result = scoreWithModel(tx);
+    const [amountNorm, velocityNorm, deviceFlag, locationFlag, nightFlag] = extractFeatures(tx).numeric;
 
     const signals: string[] = [];
-    if (probability >= 0.83) signals.push("High ML Fraud Probability (p >= 0.83)");
-    else if (probability >= 0.40) signals.push("Elevated Model Uncertainty");
-    if (normAmount > 2.0) signals.push("Amount anomaly");
-    if (normVelocity >= 3.0) signals.push("Velocity spike");
+    if (result.decision === "FLAG") signals.push(`High ML fraud score (p >= ${FLAG_THRESHOLD})`);
+    else if (result.decision === "VERIFY") signals.push("Elevated ML fraud score");
+    if (amountNorm > 2.0) signals.push("Amount anomaly");
+    if (velocityNorm >= 3.0) signals.push("Velocity spike");
     if (deviceFlag) signals.push("Unrecognized device fingerprint");
+    if (locationFlag) signals.push("Location change");
+    if (nightFlag) signals.push("Night-time activity");
 
     return {
       scorerId: this.scorerId,
       scorerType: this.scorerType,
       version: this.version,
-      score,
-      probability: Number(probability.toFixed(4)),
-      decision,
+      score: result.riskScore,
+      probability: Number(result.probability.toFixed(4)),
+      decision: result.decision,
       latencyMs: Math.max(1, Math.round(performance.now() - start)),
       signals,
-      explanation: `Trained Logistic Regression estimate (v${this.version}). Intercept log-odds: ${this.weights.intercept}, calculated logit z: ${z.toFixed(2)}.`,
-      attributions: [
-        { name: "Amount Factor (w=4.20)", value: Number((normAmount * 0.42).toFixed(2)) },
-        { name: "Velocity Factor (w=1.61)", value: Number((normVelocity * 0.25).toFixed(2)) },
-        { name: "Device Novelty (w=1.01)", value: deviceFlag ? 0.18 : 0.0 },
-        { name: "Location Shift (w=0.89)", value: locFlag ? 0.14 : 0.0 },
-      ],
+      explanation: `Logistic regression ${MODEL_VERSION} (synthetic training data): logit ${result.logit.toFixed(2)}, score ${result.probability.toFixed(3)}.`,
+      attributions: result.contributions.map((c) => ({ name: c.name, value: Number(c.contribution.toFixed(3)) })),
     };
   }
 }
 
 /**
  * 3. EnsemblePolicyScorer
- * Blends ML probability estimates with hard business compliance rules.
+ * Blends the ML score with the rule engine score. This is a fixed weighting policy,
+ * not a separately trained model.
  */
 export function scoreWithEnsemble(
-  tx: { amount: number; channel: string; attemptCount?: number; isNewDevice?: boolean; hourOfDay?: number },
+  tx: {
+    amount: number;
+    channel: string;
+    attemptCount?: number;
+    isNewDevice?: boolean;
+    locationChange?: boolean;
+    hourOfDay?: number;
+  },
   rules: RiskRule[] = []
 ): {
   primary: ScorerOutput;
@@ -192,16 +172,17 @@ export function scoreWithEnsemble(
   const blendedDecision: Decision = blendedScore >= 75 ? "FLAG" : blendedScore >= 45 ? "VERIFY" : "ALLOW";
 
   const primary: ScorerOutput = {
-    scorerId: "aegis-ensemble-v1.8.2",
-    scorerType: "TrainedML",
-    version: "1.8.2",
+    scorerId: "rule-ml-blend-v1.0.0",
+    scorerType: "Ensemble",
+    version: "1.0.0",
     score: blendedScore,
     probability: blendedScore / 100,
     decision: blendedDecision,
     latencyMs: Math.max(ruleRes.latencyMs, mlRes.latencyMs),
     signals: Array.from(new Set([...mlRes.signals, ...ruleRes.signals])),
-    explanation: `Ensemble combination of ML Classifier (score ${mlRes.score}) and Rule Engine (score ${ruleRes.score}).`,
-    attributions: [...mlRes.attributions, ...ruleRes.attributions.slice(0, 2)],
+    explanation: `Fixed 65/35 blend of ML classifier (score ${mlRes.score}) and rule engine (score ${ruleRes.score}).`,
+    // Rule contributions are score points, not log-odds, so only the model's are reported here
+    attributions: mlRes.attributions,
   };
 
   return {

@@ -55,7 +55,7 @@ export const AttackDigitalTwin: React.FC = () => {
         score: res.score,
         decision: res.decision,
         signals: res.signals,
-        modelVersion: "fraud-v1.8.2-twin",
+        modelVersion: res.modelVersion,
         latency: res.latencyMs,
         explanation: `[ATTACK TWIN] ${res.explanation}`,
       };
