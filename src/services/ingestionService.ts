@@ -1,8 +1,7 @@
 import Papa from "papaparse";
 import { z } from "zod";
 import type { Transaction, RiskRule } from "../types";
-import { scoreTransactionDeterministic } from "./scoringEngine";
-import { insertTransaction } from "./transactionService";
+import { insertTransaction, scoreTransaction } from "./transactionService";
 
 const CsvRowSchema = z.object({
   id: z.string().optional(),
@@ -69,15 +68,18 @@ export function parseAndIngestCsv(
           }
           existingIds.add(txId);
 
-          // Evaluate deterministic fraud risk for imported record
-          const scoring = scoreTransactionDeterministic(
-            {
-              amount: parsed.data.amount,
-              channel: parsed.data.channel,
-              customer: parsed.data.customer,
-            },
-            activeRules
-          );
+          const importBatchId = `BATCH-${new Date().toISOString().slice(0, 10)}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+
+          // Evaluate genuine ML risk using the v2.0.0 scoring pipeline
+          const scoring = await scoreTransaction({
+            amount: parsed.data.amount,
+            channel: parsed.data.channel,
+            customer: parsed.data.customer,
+            attemptCount: 1,
+            isNewDevice: false,
+            locationChange: false,
+            hourOfDay: new Date().getHours(),
+          });
 
           const newTx: Transaction = {
             id: txId,
@@ -86,14 +88,22 @@ export function parseAndIngestCsv(
             channel: parsed.data.channel,
             customer: parsed.data.customer,
             score: scoring.score,
-            decision: scoring.decision,
+            decision: scoring.decision as any,
             signals: scoring.signals,
             modelVersion: scoring.modelVersion,
-            latency: scoring.latencyMs,
+            latency: scoring.latency,
             explanation: scoring.explanation,
+            provenance: "imported",
+            importBatchId: importBatchId,
           };
 
-          await insertTransaction(newTx);
+          try {
+            await insertTransaction(newTx);
+          } catch (insertErr) {
+            // Log persistence error without silently dropping
+            errors.push(`Row ${i + 1} (${txId}): ${(insertErr as Error).message}`);
+          }
+
           newTransactions.push(newTx);
           accepted++;
         }

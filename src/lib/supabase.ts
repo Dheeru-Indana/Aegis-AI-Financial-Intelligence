@@ -53,10 +53,17 @@ export async function checkSystemHealth(): Promise<SystemHealthStatus> {
   }
 
   try {
-    const { error } = await supabase.from("profiles").select("id").limit(1);
+    // Check active session or query public.risk_rules to test database connectivity safely
+    const session = (await supabase.auth.getSession()).data.session;
+    const testQuery = session
+      ? supabase.from("profiles").select("id").limit(1)
+      : supabase.from("risk_rules").select("id").limit(1);
+
+    const { error } = await testQuery;
     const latency = Math.round(performance.now() - startTime);
 
     if (error) {
+      // If error is permission denied on anonymous, verify if auth is still working
       return {
         database: "disconnected",
         auth: "operational",

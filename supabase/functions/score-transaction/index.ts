@@ -114,25 +114,53 @@ serve(async (req) => {
       );
     }
 
-    // 4. Server-side scoring calculation
-    let score = 10;
-    const signals: string[] = [];
+    // 4. ML Model Scoring (FastAPI Python microservice or calibrated logistic regression)
+    const pythonApiUrl = Deno.env.get("PYTHON_MODEL_SERVICE_URL") || "http://localhost:8000";
+    let finalScore = 10;
+    let decision: "ALLOW" | "VERIFY" | "FLAG" = "ALLOW";
+    let riskLevel: "Low" | "Medium" | "High" = "Low";
+    let signals: string[] = [];
+    let modelVersion = "fraud-v2.0.0-logistic";
+    let explanation = "";
 
-    if (amount > 100000) {
-      score += 45;
-      signals.push("Amount anomaly");
-    } else if (amount > 50000) {
-      score += 20;
+    try {
+      const mlResponse = await fetch(`${pythonApiUrl}/api/score`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount,
+          customer: customer.trim(),
+          channel,
+          attempt_count: attemptCount,
+        }),
+      });
+
+      if (mlResponse.ok) {
+        const mlData = await mlResponse.json();
+        finalScore = mlData.risk_score;
+        decision = mlData.recommended_action;
+        riskLevel = mlData.risk_band;
+        signals = mlData.reason_codes || [];
+        modelVersion = mlData.model_version || modelVersion;
+        explanation = `Python FastAPI ML scored probability ${mlData.fraud_probability} (${finalScore}/100). Recommended: ${decision}.`;
+      } else {
+        throw new Error(`ML service returned ${mlResponse.status}`);
+      }
+    } catch {
+      // Synchronized in-memory Logistic Regression calculation (ml/features.py weights)
+      const normAmount = Math.min(10.0, Math.max(0.01, amount / 25000.0));
+      const normVelocity = Math.min(10.0, Math.max(0.0, attemptCount - 1));
+      const z = -4.9801 + 4.2045 * normAmount + 1.609 * normVelocity;
+      const proba = 1.0 / (1.0 + Math.exp(-z));
+      finalScore = Math.min(99, Math.max(1, Math.round(proba * 100)));
+      decision = proba >= 0.83 ? "FLAG" : proba >= 0.40 ? "VERIFY" : "ALLOW";
+      riskLevel = finalScore >= 75 ? "High" : finalScore >= 45 ? "Medium" : "Low";
+      if (normAmount > 2.0) signals.push("Amount anomaly");
+      if (normVelocity >= 3.0) signals.push("Velocity spike");
+      if (signals.length === 0) signals.push("Standard profile");
+      explanation = `Trained Logistic Regression pipeline scored ${finalScore}/100. Decision: ${decision}. Caller: ${user.email || profile.role}.`;
     }
 
-    if (attemptCount >= 4) {
-      score += 35;
-      signals.push("Velocity spike");
-    }
-
-    const finalScore = Math.min(score, 99);
-    const decision = finalScore >= 75 ? "FLAG" : finalScore >= 45 ? "VERIFY" : "ALLOW";
-    const riskLevel = finalScore >= 75 ? "High" : finalScore >= 45 ? "Medium" : "Low";
     const txId = `TXN-${Math.floor(20500 + Math.random() * 50000)}`;
 
     // 5. Store evaluated transaction with service-role security
@@ -146,8 +174,8 @@ serve(async (req) => {
       decision,
       scoring_status: "SCORED",
       signals: signals.length > 0 ? signals : ["Standard profile"],
-      model_version: "fraud-v1.8.2",
-      explanation: `Server evaluated risk score ${finalScore}/100. Decision: ${decision}. Triggered by ${user.email || profile.role}.`,
+      model_version: modelVersion,
+      explanation,
     });
 
     if (dbError) {

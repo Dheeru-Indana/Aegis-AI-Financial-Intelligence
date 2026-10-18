@@ -35,6 +35,7 @@ describe("Lightweight Model Scorers Architecture", () => {
     const mlScorer = new TrainedMLScorer();
 
     const lowTx = mlScorer.score({ amount: 2000, channel: "Card", attemptCount: 1 });
+    expect(mlScorer.version).toBe("2.0.0");
     expect(lowTx.scorerType).toBe("TrainedML");
     expect(lowTx.probability).toBeLessThan(0.15); // Imbalanced baseline expectation
     expect(lowTx.decision).toBe("ALLOW");
@@ -42,7 +43,7 @@ describe("Lightweight Model Scorers Architecture", () => {
     const highTx = mlScorer.score({ amount: 120000, channel: "Net banking", attemptCount: 6, isNewDevice: true });
     expect(highTx.probability).toBeGreaterThan(0.7);
     expect(highTx.decision).toBe("FLAG");
-    expect(highTx.attributions.length).toBe(3);
+    expect(highTx.attributions.length).toBe(4);
   });
 
   it("scoreWithEnsemble produces consensus diagnostics without fabricating scores", () => {

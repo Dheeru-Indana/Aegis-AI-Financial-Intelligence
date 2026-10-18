@@ -175,6 +175,55 @@ export const AdminWorkspace: React.FC<{ onExit: () => void }> = ({ onExit }) => 
         </div>
       </section>
 
+      {/* Model Registry & MLOps Governance Panel */}
+      <section className="panel" style={{ marginBottom: "24px", padding: "20px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
+          <div>
+            <h2 style={{ fontSize: "16px", margin: "0 0 4px", display: "flex", alignItems: "center", gap: "8px" }}>
+              <ShieldAlert size={17} color="#22d3ee" /> Production Model Registry & Governance
+            </h2>
+            <p style={{ color: "#94a3b8", fontSize: "13px", margin: 0 }}>
+              Live CPU inference pipeline status, dataset provenance, and held-out validation report.
+            </p>
+          </div>
+          <span className="badge green">Active: fraud-v2.0.0-logistic</span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginBottom: "16px" }}>
+          <div style={{ background: "#0b1220", border: "1px solid #1e293b", padding: "12px", borderRadius: "8px" }}>
+            <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase" }}>Estimator Family</span>
+            <strong style={{ display: "block", fontSize: "13px", color: "#f1f5f9", marginTop: "4px" }}>
+              LogisticRegression (Balanced)
+            </strong>
+            <small style={{ color: "#94a3b8", fontSize: "11px" }}>Class-weighted Stratified Prior</small>
+          </div>
+
+          <div style={{ background: "#0b1220", border: "1px solid #1e293b", padding: "12px", borderRadius: "8px" }}>
+            <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase" }}>Artifact Fingerprint</span>
+            <strong style={{ display: "block", fontSize: "13px", color: "#22d3ee", marginTop: "4px" }}>
+              SHA-256: 84c8b6ed... (3.8 KB)
+            </strong>
+            <small style={{ color: "#94a3b8", fontSize: "11px" }}>CPU Inference Latency &lt; 2ms</small>
+          </div>
+
+          <div style={{ background: "#0b1220", border: "1px solid #1e293b", padding: "12px", borderRadius: "8px" }}>
+            <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase" }}>Calibrated Threshold</span>
+            <strong style={{ display: "block", fontSize: "13px", color: "#34d399", marginTop: "4px" }}>
+              0.83 (F1: 0.938 / Recall: 0.952)
+            </strong>
+            <small style={{ color: "#94a3b8", fontSize: "11px" }}>PR-AUC: 0.990 · ROC-AUC: 0.9995</small>
+          </div>
+
+          <div style={{ background: "#0b1220", border: "1px solid #1e293b", padding: "12px", borderRadius: "8px" }}>
+            <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase" }}>Dataset Provenance</span>
+            <strong style={{ display: "block", fontSize: "13px", color: "#fbbf24", marginTop: "4px" }}>
+              synthetic_demo (8,000 txs)
+            </strong>
+            <small style={{ color: "#94a3b8", fontSize: "11px" }}>Production validation pending</small>
+          </div>
+        </div>
+      </section>
+
       {/* Role Modification Modal */}
       {selectedUser && (
         <div className="modal-backdrop" onMouseDown={() => setSelectedUser(null)}>

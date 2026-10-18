@@ -98,15 +98,64 @@ export async function getTransaction(id: string): Promise<Transaction | undefine
 }
 
 export async function scoreTransaction(payload: Record<string, unknown>) {
-  if (USE_MOCKS) {
-    return {
-      mode: "mock",
-      message: "Scoring is a demo interaction; no backend request was made.",
-      payload,
-    };
+  const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
+  try {
+    const response = await fetch(`${apiBase}/api/score`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount: payload.amount,
+        channel: payload.channel || "UPI",
+        customer: payload.customer || "CUST-ANON",
+        attempt_count: payload.attemptCount || 1,
+        is_new_device: payload.isNewDevice || false,
+        location_change: payload.locationChange || false,
+        hour_of_day: payload.hourOfDay ?? new Date().getHours(),
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return {
+        mode: "live_ml",
+        score: data.risk_score,
+        probability: data.fraud_probability,
+        decision: data.recommended_action,
+        riskLevel: data.risk_band,
+        signals: data.reason_codes,
+        modelVersion: data.model_version,
+        latency: data.inference_latency_ms,
+        explanation: `ML Pipeline scored risk ${data.risk_score}/100. Recommended action: ${data.recommended_action}.`,
+        attributions: data.local_attributions,
+      };
+    }
+  } catch {
+    // Graceful offline fallback to synchronized local TrainedMLScorer
   }
-  return apiRequest("/api/transactions/score", {
-    method: "POST",
-    body: JSON.stringify(payload),
+
+  // Fallback to client-side trained ML estimator
+  const { TrainedMLScorer } = await import("./modelScorers");
+  const scorer = new TrainedMLScorer();
+  const res = scorer.score({
+    amount: Number(payload.amount) || 1000,
+    channel: String(payload.channel || "UPI"),
+    attemptCount: Number(payload.attemptCount) || 1,
+    isNewDevice: Boolean(payload.isNewDevice),
+    locationChange: Boolean(payload.locationChange),
+    hourOfDay: Number(payload.hourOfDay) || 14,
   });
+
+  return {
+    mode: "client_ml_fallback",
+    score: res.score,
+    probability: res.probability,
+    decision: res.decision,
+    riskLevel: res.score >= 75 ? "High" : res.score >= 45 ? "Medium" : "Low",
+    signals: res.signals,
+    modelVersion: `fraud-v${res.version}`,
+    latency: res.latencyMs,
+    explanation: res.explanation,
+    attributions: res.attributions,
+  };
 }

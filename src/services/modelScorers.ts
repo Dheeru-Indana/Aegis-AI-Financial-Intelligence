@@ -94,41 +94,59 @@ export class RuleBasedScorer implements IScorer {
  * Coefficients represent optimized log-odds from normalized features.
  */
 export class TrainedMLScorer implements IScorer {
-  scorerId = "ml-logistic-v1.8.2";
+  scorerId = "ml-logistic-v2.0.0";
   scorerType = "TrainedML" as const;
-  version = "1.8.2";
+  version = "2.0.0";
 
-  // Pre-calculated weights from stratified logistic regression training
+  // Calibrated weights from Scikit-Learn Logistic Regression training (ml/train.py)
   private weights = {
-    amountNorm: 1.42,
-    velocityNorm: 2.18,
-    isNewDevice: 0.85,
-    intercept: -3.85, // Strong imbalanced baseline prior (≈ 0.17% fraud prevalence)
+    amountNorm: 4.2045,
+    velocityNorm: 1.609,
+    isNewDevice: 1.0111,
+    locationChange: 0.887,
+    nightHourFlag: 0.5889,
+    intercept: -4.9801, // Imbalanced baseline prior log-odds
   };
 
-  score(tx: { amount: number; channel: string; attemptCount?: number; isNewDevice?: boolean; hourOfDay?: number }): ScorerOutput {
+  score(tx: {
+    amount: number;
+    channel: string;
+    attemptCount?: number;
+    isNewDevice?: boolean;
+    locationChange?: boolean;
+    hourOfDay?: number;
+  }): ScorerOutput {
     const start = performance.now();
 
-    // Min-Max feature normalization into standard ML scaling
-    const normAmount = Math.min(5, tx.amount / 25000); // 0 to 5 standard deviation proxy
-    const normVelocity = Math.min(5, (tx.attemptCount ?? 1) - 1);
-    const deviceFlag = tx.isNewDevice ? 1 : 0;
+    // Min-Max feature normalization conforming to ml/features.py
+    const normAmount = Math.min(10.0, Math.max(0.01, tx.amount / 25000.0));
+    const normVelocity = Math.min(10.0, Math.max(0.0, (tx.attemptCount ?? 1) - 1));
+    const deviceFlag = tx.isNewDevice ? 1.0 : 0.0;
+    const locFlag = tx.locationChange ? 1.0 : 0.0;
+    const hour = tx.hourOfDay ?? 14;
+    const nightFlag = (hour >= 23 || hour < 5) ? 1.0 : 0.0;
 
-    // Logit linear combination: z = w0 + w1*x1 + w2*x2 + ...
+    // Logit linear combination: z = w0 + sum(w_i * x_i)
     const z =
       this.weights.intercept +
       this.weights.amountNorm * normAmount +
       this.weights.velocityNorm * normVelocity +
-      this.weights.isNewDevice * deviceFlag;
+      this.weights.isNewDevice * deviceFlag +
+      this.weights.locationChange * locFlag +
+      this.weights.nightHourFlag * nightFlag;
 
     // Sigmoid activation: p = 1 / (1 + e^-z)
-    const probability = 1 / (1 + Math.exp(-z));
-    const score = Math.round(probability * 100);
-    const decision: Decision = score >= 75 ? "FLAG" : score >= 45 ? "VERIFY" : "ALLOW";
+    const probability = 1.0 / (1.0 + Math.exp(-z));
+    const score = Math.min(99, Math.max(1, Math.round(probability * 100)));
+    // Optimal threshold calibrated on validation set (0.83)
+    const decision: Decision = probability >= 0.83 ? "FLAG" : probability >= 0.40 ? "VERIFY" : "ALLOW";
 
     const signals: string[] = [];
-    if (probability >= 0.75) signals.push("High ML Fraud Probability (p > 0.75)");
-    else if (probability >= 0.45) signals.push("Elevated Model Uncertainty");
+    if (probability >= 0.83) signals.push("High ML Fraud Probability (p >= 0.83)");
+    else if (probability >= 0.40) signals.push("Elevated Model Uncertainty");
+    if (normAmount > 2.0) signals.push("Amount anomaly");
+    if (normVelocity >= 3.0) signals.push("Velocity spike");
+    if (deviceFlag) signals.push("Unrecognized device fingerprint");
 
     return {
       scorerId: this.scorerId,
@@ -139,11 +157,12 @@ export class TrainedMLScorer implements IScorer {
       decision,
       latencyMs: Math.max(1, Math.round(performance.now() - start)),
       signals,
-      explanation: `Trained Logistic Regression estimate. Intercept log-odds: ${this.weights.intercept}, calculated z-score: ${z.toFixed(2)}.`,
+      explanation: `Trained Logistic Regression estimate (v${this.version}). Intercept log-odds: ${this.weights.intercept}, calculated logit z: ${z.toFixed(2)}.`,
       attributions: [
-        { name: "Velocity Coefficient (w=2.18)", value: Number((normVelocity * 0.35).toFixed(2)) },
-        { name: "Amount Coefficient (w=1.42)", value: Number((normAmount * 0.28).toFixed(2)) },
-        { name: "Device Novelty (w=0.85)", value: deviceFlag ? 0.15 : 0.0 },
+        { name: "Amount Factor (w=4.20)", value: Number((normAmount * 0.42).toFixed(2)) },
+        { name: "Velocity Factor (w=1.61)", value: Number((normVelocity * 0.25).toFixed(2)) },
+        { name: "Device Novelty (w=1.01)", value: deviceFlag ? 0.18 : 0.0 },
+        { name: "Location Shift (w=0.89)", value: locFlag ? 0.14 : 0.0 },
       ],
     };
   }

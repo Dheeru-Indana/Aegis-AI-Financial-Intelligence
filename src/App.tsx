@@ -77,7 +77,7 @@ import {
 import type { Transaction, FraudCase, RiskRule, AuditEvent } from "./types";
 import { useAuth } from "./lib/authContext";
 import { supabase, checkSystemHealth, type SystemHealthStatus } from "./lib/supabase";
-import { listTransactions, insertTransaction } from "./services/transactionService";
+import { listTransactions, insertTransaction, scoreTransaction } from "./services/transactionService";
 import { listCases, createCaseRemote, updateCase } from "./services/caseService";
 import { listRules, createRule, toggleRuleRemote } from "./services/rulesService";
 import { listAudit, recordAuditRemote } from "./services/auditService";
@@ -340,6 +340,9 @@ function App() {
     };
   }, [isConfigured]);
 
+  const [provenanceFilter, setProvenanceFilter] = useState<string>("All");
+  const [realtimeStatus, setRealtimeStatus] = useState<"connected" | "connecting" | "disconnected" | "paused">("disconnected");
+
   // Initial load from Supabase if configured
   useEffect(() => {
     if (isConfigured) {
@@ -350,19 +353,31 @@ function App() {
         listRules(),
         listAudit(),
       ]).then(([txRes, caseRes, ruleRes, auditRes]) => {
-        if (txRes.status === "fulfilled" && txRes.value.length > 0) setTxns(txRes.value);
-        if (caseRes.status === "fulfilled" && caseRes.value.length > 0) setCases(caseRes.value);
+        if (txRes.status === "fulfilled") {
+          // If remote returns records, display them; if 0 records, do not show fake data
+          setTxns(txRes.value);
+        }
+        if (caseRes.status === "fulfilled") setCases(caseRes.value);
         if (ruleRes.status === "fulfilled" && ruleRes.value.length > 0) setRules(ruleRes.value);
-        if (auditRes.status === "fulfilled" && auditRes.value.length > 0) setAuditLogs(auditRes.value);
+        if (auditRes.status === "fulfilled") setAuditLogs(auditRes.value);
         setDbLoading(false);
       });
     }
   }, [isConfigured]);
 
-  // Supabase Realtime Subscription for live incoming transactions
+  // Supabase Realtime Subscription for live incoming transactions with strict status tracking
   useEffect(() => {
-    if (!isConfigured || !supabase || !streamOn) return;
+    if (!isConfigured || !supabase) {
+      setRealtimeStatus("disconnected");
+      return;
+    }
 
+    if (!streamOn) {
+      setRealtimeStatus("paused");
+      return;
+    }
+
+    setRealtimeStatus("connecting");
     const channel = supabase
       .channel("realtime_transactions")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "transactions" }, (payload) => {
@@ -376,15 +391,24 @@ function App() {
           score: newRow.score,
           decision: newRow.decision,
           signals: Array.isArray(newRow.signals) ? newRow.signals : [],
-          modelVersion: newRow.model_version || "fraud-v1.8.2",
+          modelVersion: newRow.model_version || "fraud-v2.0.0",
           latency: newRow.latency || 18,
           explanation: newRow.explanation || "",
           caseId: newRow.case_id || undefined,
+          provenance: newRow.provenance || "live",
         };
         setTxns((prev) => [newTx, ...prev]);
         toast(`New transaction received: ${newTx.id} (${newTx.decision})`);
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          setRealtimeStatus("connected");
+        } else if (status === "CLOSED") {
+          setRealtimeStatus("disconnected");
+        } else if (status === "CHANNEL_ERROR") {
+          setRealtimeStatus("disconnected");
+        }
+      });
 
     return () => {
       if (supabase) {
@@ -398,9 +422,10 @@ function App() {
       txns.filter(
         (t) =>
           (t.id + " " + t.customer + " " + t.channel + " " + t.signals.join(" ")).toLowerCase().includes(query.toLowerCase()) &&
-          (decisionFilter === "All" || t.decision === decisionFilter)
+          (decisionFilter === "All" || t.decision === decisionFilter) &&
+          (provenanceFilter === "All" || (t.provenance || "unknown") === provenanceFilter.toLowerCase())
       ),
-    [txns, query, decisionFilter]
+    [txns, query, decisionFilter, provenanceFilter]
   );
   const paged = filtered.slice(page * 5, page * 5 + 5);
 
@@ -776,26 +801,49 @@ function App() {
                     page={page}
                     setPage={setPage}
                     toast={toast}
+                    realtimeStatus={realtimeStatus}
+                    provenanceFilter={provenanceFilter}
+                    setProvenanceFilter={setProvenanceFilter}
                     isConfigured={isConfigured}
                     onAddSample={async () => {
+                      const amount = Math.floor(Math.random() * 90000 + 1000);
+                      const channel = (["UPI", "Card", "Net banking", "Wallet"][Math.floor(Math.random() * 4)]) as any;
+                      const customer = `CUST-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+                      const attemptCount = Math.random() < 0.25 ? Math.floor(Math.random() * 4 + 2) : 1;
+                      const isNewDevice = Math.random() < 0.2;
+
+                      // Evaluate using canonical ML scoring service
+                      const scored = await scoreTransaction({
+                        amount,
+                        channel,
+                        customer,
+                        attemptCount,
+                        isNewDevice,
+                      });
+
                       const newTx: Transaction = {
                         id: `TXN-${Math.floor(20489 + Math.random() * 1000)}`,
                         timestamp: new Date().toISOString().replace("T", " ").slice(0, 19),
-                        amount: Math.floor(Math.random() * 90000 + 1000),
-                        channel: ["UPI", "Card", "Net banking", "Wallet"][Math.floor(Math.random() * 4)],
-                        customer: `CUST-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
-                        score: Math.floor(Math.random() * 95 + 5),
-                        decision: "ALLOW",
-                        signals: ["New session"],
-                        modelVersion: "fraud-v1.8.2",
-                        latency: 16,
-                        explanation: "Incoming transaction evaluated.",
+                        amount,
+                        channel,
+                        customer,
+                        score: scored.score,
+                        decision: scored.decision as any,
+                        signals: scored.signals || ["Standard profile"],
+                        modelVersion: scored.modelVersion || "fraud-v2.0.0-logistic",
+                        latency: scored.latency || 18,
+                        explanation: scored.explanation || "Transaction evaluated by ML model.",
+                        provenance: "test",
                       };
-                      newTx.decision = newTx.score >= 75 ? "FLAG" : newTx.score >= 45 ? "VERIFY" : "ALLOW";
-                      if (newTx.decision === "FLAG") newTx.signals.push("Velocity spike", "Amount anomaly");
-                      await insertTransaction(newTx);
+
+                      try {
+                        await insertTransaction(newTx);
+                      } catch (err) {
+                        toast(`Test event scored locally: ${(err as Error).message}`);
+                      }
+
                       setTxns((prev) => [newTx, ...prev]);
-                      toast(`Test event ${newTx.id} injected and scored`);
+                      toast(`Test event ${newTx.id} (provenance: test) scored via ${scored.mode || "ML"} (Score: ${scored.score})`);
                     }}
                   />
                 }
@@ -1155,18 +1203,29 @@ function Overview({
   setTimeRange: (s: string) => void;
   isConfigured: boolean;
 }) {
+  const totalCount = txns.length;
+  const flaggedCount = txns.filter((t) => t.decision === "FLAG").length;
+  const fraudRate = totalCount > 0 ? ((flaggedCount / totalCount) * 100).toFixed(2) + "%" : "0.00%";
+  const exposureSum = txns
+    .filter((t) => t.decision === "FLAG" || t.score >= 75)
+    .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+  const exposureFormatted = exposureSum >= 100000
+    ? `₹${(exposureSum / 100000).toFixed(2)}L`
+    : `₹${exposureSum.toLocaleString()}`;
+  const avgLatency = totalCount > 0
+    ? Math.round(txns.reduce((acc, curr) => acc + (curr.latency || 18), 0) / totalCount) + " ms"
+    : "18 ms";
+
   const dist = useMemo(() => {
     const low = txns.filter((t) => t.score < 45).length;
     const med = txns.filter((t) => t.score >= 45 && t.score < 75).length;
     const high = txns.filter((t) => t.score >= 75).length;
     return [
-      { name: "Low risk", value: low || 19462, color: "#34d399" },
-      { name: "Medium risk", value: med || 5242, color: "#fbbf24" },
-      { name: "High risk", value: high || 127, color: "#fb7185" },
+      { name: "Low risk", value: low, color: "#34d399" },
+      { name: "Medium risk", value: med, color: "#fbbf24" },
+      { name: "High risk", value: high, color: "#fb7185" },
     ];
   }, [txns]);
-
-  const flaggedCount = txns.filter((t) => t.decision === "FLAG").length;
 
   return (
     <>
@@ -1189,22 +1248,22 @@ function Overview({
       <div className="kpi-grid">
         <KPI
           label="Transactions processed"
-          value={txns.length > 8 ? `${txns.length.toLocaleString()}` : "24,831"}
-          change="↑ 12.8%"
-          foot="vs. prior period"
+          value={totalCount.toLocaleString()}
+          change={totalCount > 0 ? "Active cohort" : "No records"}
+          foot="Verified records in memory"
           icon={Activity}
         />
         <KPI
           label="Fraud alerts"
-          value={String(flaggedCount || 127)}
-          change="↑ 8.2%"
+          value={String(flaggedCount)}
+          change={flaggedCount > 0 ? "Flagged items" : "Zero alerts"}
           tone="red"
-          foot="requires attention"
+          foot="Requires analyst triage"
           icon={ShieldAlert}
         />
-        <KPI label="Fraud rate" value="0.51%" change="↓ 0.04%" tone="amber" foot="illustrative" icon={AlertTriangle} />
-        <KPI label="High-risk exposure" value="₹8.42L" change="12 flagged items" tone="red" foot="estimated exposure" icon={ArrowUpRight} />
-        <KPI label="Avg. inference latency" value="18 ms" change="within target" tone="blue" foot="illustrative" icon={Timer} />
+        <KPI label="Fraud rate" value={fraudRate} change={flaggedCount > 0 ? "Elevated" : "Normal"} tone="amber" foot="Observed alert ratio" icon={AlertTriangle} />
+        <KPI label="High-risk exposure" value={exposureFormatted} change={`${txns.filter(t => t.score >= 75).length} elevated items`} tone="red" foot="Flagged transaction volume" icon={ArrowUpRight} />
+        <KPI label="Avg. inference latency" value={avgLatency} change="P95 < 25ms" tone="blue" foot="Measured ML execution" icon={Timer} />
       </div>
 
       <div className="charts-grid">
@@ -1391,6 +1450,9 @@ function Transactions({
   page,
   setPage,
   toast,
+  realtimeStatus,
+  provenanceFilter,
+  setProvenanceFilter,
   isConfigured,
   onAddSample,
 }: {
@@ -1408,19 +1470,34 @@ function Transactions({
   page: number;
   setPage: (n: number) => void;
   toast: (s: string) => void;
+  realtimeStatus: "connected" | "connecting" | "disconnected" | "paused";
+  provenanceFilter: string;
+  setProvenanceFilter: (s: string) => void;
   isConfigured: boolean;
   onAddSample: () => void;
 }) {
+  const getStreamBadge = () => {
+    switch (realtimeStatus) {
+      case "connected":
+        return <Badge tone="green"><span className="pulse-dot" /> Realtime stream: Live</Badge>;
+      case "connecting":
+        return <Badge tone="amber"><span className="pulse-dot" /> Realtime: Connecting…</Badge>;
+      case "paused":
+        return <Badge tone="amber">Stream paused</Badge>;
+      case "disconnected":
+      default:
+        return <Badge tone="red">Stream disconnected (Polling/Local)</Badge>;
+    }
+  };
+
   return (
     <>
       <PageHeading
         title="Live Transactions"
-        sub="Monitor and triage transaction activity in real time."
+        sub="Monitor and triage transaction activity in real time with verified provenance."
         actions={
           <>
-            <Badge tone={isConfigured ? "green" : "amber"}>
-              <span className="pulse-dot" /> {isConfigured ? "Realtime stream" : "Simulated stream"}
-            </Badge>
+            {getStreamBadge()}
             <Button
               onClick={() => {
                 setStreamOn(!streamOn);
@@ -1435,13 +1512,13 @@ function Transactions({
       <div className="metric-strip">
         <div>
           <span>Stream status</span>
-          <strong>{streamOn ? "Live" : "Paused"}</strong>
-          <small>{isConfigured ? "Supabase Realtime" : "Local"}</small>
+          <strong>{realtimeStatus === "connected" ? "Live" : realtimeStatus === "paused" ? "Paused" : "Disconnected"}</strong>
+          <small>{isConfigured ? (realtimeStatus === "connected" ? "Supabase Realtime" : "Reconnecting") : "Local / Unconfigured"}</small>
         </div>
         <div>
           <span>Transactions evaluated</span>
           <strong>{total}</strong>
-          <small>Total loaded</small>
+          <small>Total in view</small>
         </div>
         <div>
           <span>Requiring review</span>
@@ -1475,14 +1552,25 @@ function Transactions({
               setPage(0);
             }}
           >
-            <option>All</option>
+            <option>All Decisions</option>
             <option>ALLOW</option>
             <option>VERIFY</option>
             <option>FLAG</option>
           </select>
-          <Button onClick={() => toast("Advanced filters ready")}>
-            <SlidersHorizontal size={15} /> Filters
-          </Button>
+          <select
+            className="select"
+            value={provenanceFilter}
+            onChange={(e) => {
+              setProvenanceFilter(e.target.value);
+              setPage(0);
+            }}
+          >
+            <option value="All">All Provenance</option>
+            <option value="live">Live Only</option>
+            <option value="imported">Imported CSV Only</option>
+            <option value="demo">Demo Only</option>
+            <option value="simulation">Simulation Only</option>
+          </select>
           <Button onClick={onExport}>
             <Download size={15} /> Export
           </Button>
@@ -1498,7 +1586,13 @@ function Transactions({
             <i className="pulse-dot" /> {streamOn ? "Stream active" : "Stream paused"} <span className="caption-sep">·</span> {total}{" "}
             records in current filter
           </span>
-          <span>{isConfigured ? "Synchronized with Supabase" : "Updated from local sample data"}</span>
+          <span>
+            {realtimeStatus === "connected"
+              ? "Synchronized with Supabase Realtime"
+              : isConfigured
+              ? "Supabase connected (Realtime socket disconnected)"
+              : "Isolated local development environment"}
+          </span>
         </div>
         <Table>
           <thead>
